@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Multi-Review Panel — Design Playground</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'JetBrains Mono', 'SF Mono', monospace; background: #09090b; color: #e4e4e7; overflow: hidden; }
+  .phone { width: 430px; height: 932px; margin: 20px auto; position: relative; overflow: hidden; border-radius: 24px; border: 2px solid #27272a; background: #0f0f11; display: flex; flex-direction: column; }
+  .header { padding: 16px; border-bottom: 1px solid #27272a; display: flex; align-items: center; gap: 8px; }
+  .header .back { color: #71717a; font-size: 18px; cursor: pointer; }
+  .header .title { font-size: 14px; font-weight: 600; }
+  .header .sid { font-size: 11px; color: #52525b; }
+  .chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; }
+  .msg.assistant { align-self: flex-start; background: #1a1a1e; border: 1px solid #27272a; }
+  .msg .actions { display: flex; gap: 8px; margin-top: 6px; }
+  .msg .actions button { background: none; border: none; color: #52525b; font-size: 11px; cursor: pointer; }
+  .msg .actions button:hover { color: #a1a1aa; }
+  .marker { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .marker .line { flex: 1; height: 1px; }
+  .marker .label { font-size: 10px; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .status-bar { padding: 6px 16px; font-size: 11px; color: #52525b; display: flex; align-items: center; gap: 6px; border-top: 1px solid #27272a; }
+  .status-bar .badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; }
+  .input-bar { padding: 12px 16px; display: flex; align-items: center; gap: 8px; }
+  .input-bar input { flex: 1; background: #1a1a1e; border: 1px solid #27272a; border-radius: 8px; padding: 10px 14px; font-size: 14px; color: #e4e4e7; font-family: inherit; outline: none; }
+  .input-bar input::placeholder { color: #52525b; }
+  .input-bar input:focus { border-color: #22c55e; box-shadow: 0 0 6px #22c55e30; }
+  .input-bar button { background: none; border: none; color: #52525b; font-size: 18px; cursor: pointer; }
+  .minimized-bar { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: #0f0f11; border-top: 1px solid #27272a; cursor: pointer; transition: background 0.15s; }
+  .minimized-bar:hover { background: #1a1a1e; }
+  .minimized-bar .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .minimized-bar .info { flex: 1; font-size: 11px; color: #a1a1aa; }
+  .minimized-bar .expand-btn { font-size: 10px; color: #52525b; }
+  .minimized-bar .end-btn { font-size: 10px; color: #ef4444; cursor: pointer; }
+  .review-panel { position: absolute; bottom: 0; left: 0; right: 0; background: #0f0f11; border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; z-index: 10; }
+  .review-panel .handle { width: 32px; height: 3px; background: #3f3f46; border-radius: 2px; margin: 8px auto; cursor: pointer; }
+  .tab-bar { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid #27272a; overflow-x: auto; }
+  .tab-bar .tab { display: flex; align-items: center; gap: 4px; padding: 8px 12px; font-size: 11px; color: #71717a; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+  .tab-bar .tab:hover { color: #a1a1aa; }
+  .tab-bar .tab.active { color: #e4e4e7; }
+  .tab-bar .tab .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .tab-bar .tab .close { font-size: 10px; color: #52525b; margin-left: 4px; }
+  .tab-bar .tab .close:hover { color: #ef4444; }
+  .panel-header { display: flex; align-items: center; gap: 8px; padding: 8px 16px; }
+  .panel-header .badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; }
+  .panel-header .title { font-size: 11px; color: #a1a1aa; flex: 1; }
+  .panel-header .minimize-btn { font-size: 10px; color: #52525b; cursor: pointer; padding: 4px; }
+  .panel-header .end-btn { font-size: 10px; color: #ef4444; cursor: pointer; padding: 4px; }
+  .panel-chat { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .panel-chat .msg { font-size: 12px; padding: 8px 12px; }
+  .panel-input { padding: 8px 12px; display: flex; align-items: center; gap: 6px; }
+  .panel-input input { flex: 1; background: #1a1a1e; border: 1px solid #27272a; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: #e4e4e7; font-family: inherit; outline: none; }
+  .panel-input input::placeholder { color: #52525b; font-size: 12px; }
+  .panel-input input:focus { border-color: #22c55e; }
+  .panel-input button { background: none; border: none; color: #52525b; font-size: 14px; cursor: pointer; }
+  .controls { position: fixed; top: 20px; right: 20px; background: #1a1a1e; border: 1px solid #27272a; border-radius: 12px; padding: 16px; width: 260px; z-index: 100; }
+  .controls h3 { font-size: 13px; margin-bottom: 12px; color: #22c55e; }
+  .controls .option { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; color: #a1a1aa; transition: all 0.15s; border: 1px solid transparent; margin-bottom: 4px; }
+  .controls .option:hover { background: #27272a; }
+  .controls .option.active { border-color: #22c55e; color: #e4e4e7; background: #22c55e10; }
+  .controls .option .num { width: 20px; height: 20px; border-radius: 50%; background: #27272a; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; }
+  .controls .option.active .num { background: #22c55e; color: #000; }
+  .controls .desc { font-size: 10px; color: #52525b; margin-top: 8px; padding: 0 4px; line-height: 1.5; }
+  .controls .scenario { margin-top: 16px; border-top: 1px solid #27272a; padding-top: 12px; }
+  .controls .scenario h4 { font-size: 11px; color: #71717a; margin-bottom: 8px; }
+  .controls .scenario .btn { display: block; width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #27272a; background: #0f0f11; color: #a1a1aa; font-size: 11px; cursor: pointer; text-align: left; margin-bottom: 4px; font-family: inherit; }
+  .controls .scenario .btn:hover { border-color: #3f3f46; background: #1a1a1e; }
+</style>
+</head>
+<body>
+
+<div class="controls" id="controls"></div>
+<div class="phone" id="phone"></div>
+
+<script>
+let currentMode = 'D';
+let currentScenario = 2;
+let expandedPanel = true;
+let activeTab = 0;
+
+const reviews = [
+  { adapter: 'codex', title: 'direct', color: '#22c55e', messages: [
+    { role: 'user', text: 'Hello! How can I help you with the code-tap project today?' },
+    { role: 'assistant', text: 'I can help debug, review code, or implement features. What do you need?' },
+  ]},
+  { adapter: 'claude', title: 'security review', color: '#f59e0b', messages: [
+    { role: 'user', text: 'Review the auth middleware for security issues.' },
+    { role: 'assistant', text: 'I found 2 potential issues: 1. JWT expiry not checked 2. Missing CSRF validation' },
+  ]},
+  { adapter: 'gemini', title: 'refactor plan', color: '#3b82f6', messages: [
+    { role: 'user', text: 'Suggest how to refactor the session manager.' },
+    { role: 'assistant', text: 'The session manager has grown to 500+ lines. I suggest splitting into smaller modules...' },
+  ]},
+];
+
+const descriptions = {
+  A: 'Bottom panel always visible with tab bar at top to switch reviews.',
+  B: 'Each review is a separate minimized bar. Click Expand to open one.',
+  C: 'All minimized bars. Click any to expand it, others auto-minimize.',
+  D: 'One compact bar when minimized. Tabbed panel when expanded. (Your idea)',
+};
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function buildControls() {
+  const el = document.getElementById('controls');
+  const modes = ['D', 'A', 'B', 'C'];
+  const labels = {
+    D: 'Minimized bar + Tabbed panel',
+    A: 'Tab bar (always visible)',
+    B: 'Stacked minimized bars',
+    C: 'All minimized + expand one',
+  };
+  let h = '<h3>Multi-Review Panel Design</h3>';
+  modes.forEach(m => {
+    const act = m === currentMode ? ' active' : '';
+    h += '<div class="option' + act + '" data-mode="' + m + '"><span class="num">' + m + '</span><span>' + labels[m] + '</span></div>';
+  });
+  h += '<div class="desc" id="desc">' + descriptions[currentMode] + '</div>';
+  h += '<div class="scenario"><h4>Scenario</h4>';
+  [1,2,3,0].forEach(n => {
+    const label = n === 0 ? 'No active reviews' : n + ' active review' + (n>1?'s':'');
+    h += '<button class="btn" data-scenario="' + n + '">' + label + '</button>';
+  });
+  h += '</div>';
+  el.textContent = '';
+  el.insertAdjacentHTML('beforeend', h);
+
+  el.querySelectorAll('.option').forEach(opt => {
+    opt.addEventListener('click', function() {
+      currentMode = this.dataset.mode;
+      expandedPanel = true; activeTab = 0;
+      buildControls(); render();
+    });
+  });
+  el.querySelectorAll('.btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      currentScenario = parseInt(this.dataset.scenario);
+      activeTab = 0; expandedPanel = currentScenario > 0;
+      render();
+    });
+  });
+}
+
+function render() {
+  const phone = document.getElementById('phone');
+  const ar = reviews.slice(0, currentScenario);
+  phone.textContent = '';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.className = 'header';
+  hdr.insertAdjacentHTML('beforeend', '<span class="back">‹</span><span class="title">code-tap</span><span class="sid">6a2dcf33-62bc-40...</span>');
+  phone.appendChild(hdr);
+
+  // Chat
+  const chat = document.createElement('div');
+  chat.className = 'chat';
+
+  const u1 = document.createElement('div'); u1.className = 'msg user'; u1.textContent = 'Hi'; chat.appendChild(u1);
+
+  const a1 = document.createElement('div'); a1.className = 'msg assistant';
+  a1.textContent = 'Hello! How can I help you with the code-tap project today?';
+  const actions1 = document.createElement('div'); actions1.className = 'actions';
+  const sendBtn1 = document.createElement('button'); sendBtn1.textContent = '↗ Send to'; actions1.appendChild(sendBtn1);
+  a1.appendChild(actions1);
+  chat.appendChild(a1);
+
+  // Markers for first review
+  if (ar.length > 0) {
+    chat.appendChild(makeMarker(ar[0].color, capitalize(ar[0].adapter) + ' ' + ar[0].title + ' started'));
+    chat.appendChild(makeMarker(ar[0].color, capitalize(ar[0].adapter) + ' Review in progress...'));
+  }
+
+  const fb = document.createElement('div'); fb.className = 'msg user'; fb.textContent = '[Review feedback from codex]: The code looks solid. Minor suggestion: add error boundary.'; chat.appendChild(fb);
+  const a2 = document.createElement('div'); a2.className = 'msg assistant'; a2.textContent = "Thanks for the review feedback! I'll add the error boundary now.";
+  const actions2 = document.createElement('div'); actions2.className = 'actions';
+  const sendBtn2 = document.createElement('button'); sendBtn2.textContent = '↗ Send to'; actions2.appendChild(sendBtn2);
+  a2.appendChild(actions2);
+  chat.appendChild(a2);
+
+  if (ar.length > 1) {
+    chat.appendChild(makeMarker(ar[1].color, capitalize(ar[1].adapter) + ' ' + ar[1].title + ' started'));
+    chat.appendChild(makeMarker(ar[1].color, capitalize(ar[1].adapter) + ' Review in progress...'));
+  }
+
+  phone.appendChild(chat);
+
+  // Status bar
+  const sb = document.createElement('div'); sb.className = 'status-bar';
+  sb.insertAdjacentHTML('beforeend', '<span class="badge" style="background:#3b82f620;color:#3b82f6;border-radius:4px">Gemini</span> <span>Gemini Pro · YOLO</span>');
+  phone.appendChild(sb);
+
+  // Review panels
+  if (currentScenario === 0) {
+    phone.appendChild(makeInputBar('Send a message...'));
+  } else if (currentMode === 'D') {
+    if (expandedPanel) {
+      phone.appendChild(buildTabbedPanel(ar));
+    } else {
+      phone.appendChild(buildCombinedBar(ar));
+    }
+    phone.appendChild(makeInputBar('Send a message...'));
+  } else if (currentMode === 'A') {
+    phone.appendChild(buildTabbedPanel(ar));
+    phone.appendChild(makeInputBar('Send a message...'));
+  } else if (currentMode === 'B' || currentMode === 'C') {
+    ar.forEach(function(r, i) {
+      if (expandedPanel && i === activeTab) {
+        phone.appendChild(buildSinglePanel(r));
+      } else {
+        phone.appendChild(buildMinBar(r, i));
+      }
+    });
+    phone.appendChild(makeInputBar('Send a message...'));
+  }
+}
+
+function makeMarker(color, text) {
+  const d = document.createElement('div'); d.className = 'marker';
+  const l1 = document.createElement('div'); l1.className = 'line'; l1.style.background = color + '30'; d.appendChild(l1);
+  const lb = document.createElement('span'); lb.className = 'label'; lb.style.background = color + '15'; lb.style.color = color; lb.textContent = text; d.appendChild(lb);
+  const l2 = document.createElement('div'); l2.className = 'line'; l2.style.background = color + '30'; d.appendChild(l2);
+  return d;
+}
+
+function makeInputBar(placeholder) {
+  const bar = document.createElement('div'); bar.className = 'input-bar';
+  const inp = document.createElement('input'); inp.placeholder = placeholder; bar.appendChild(inp);
+  const btn = document.createElement('button'); btn.textContent = '➤'; bar.appendChild(btn);
+  return bar;
+}
+
+function buildTabbedPanel(ar) {
+  const r = ar[activeTab] || ar[0];
+  const panel = document.createElement('div'); panel.className = 'review-panel';
+  panel.style.height = '50%'; panel.style.borderTop = '2px solid ' + r.color + '40'; panel.style.position = 'relative';
+  const handle = document.createElement('div'); handle.className = 'handle';
+  handle.addEventListener('click', function() { expandedPanel = false; render(); });
+  panel.appendChild(handle);
+
+  if (ar.length > 1) {
+    const tbWrap = document.createElement('div');
+    tbWrap.style.display = 'flex'; tbWrap.style.alignItems = 'center'; tbWrap.style.borderBottom = '1px solid #27272a';
+    const tb = document.createElement('div'); tb.className = 'tab-bar'; tb.style.flex = '1'; tb.style.borderBottom = 'none';
+    ar.forEach(function(rev, i) {
+      const tab = document.createElement('div'); tab.className = 'tab' + (i === activeTab ? ' active' : '');
+      if (i === activeTab) { tab.style.color = rev.color; tab.style.borderBottomColor = rev.color; }
+      const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = rev.color; tab.appendChild(dot);
+      tab.appendChild(document.createTextNode(' ' + capitalize(rev.adapter)));
+      const close = document.createElement('span'); close.className = 'close'; close.textContent = '✕'; tab.appendChild(close);
+      tab.addEventListener('click', function() { activeTab = i; render(); });
+      tb.appendChild(tab);
+    });
+    tbWrap.appendChild(tb);
+    const minBtn = document.createElement('span');
+    minBtn.textContent = '▼'; minBtn.style.cssText = 'font-size:12px;color:#52525b;cursor:pointer;padding:8px 12px;';
+    minBtn.addEventListener('click', function() { expandedPanel = false; render(); });
+    tbWrap.appendChild(minBtn);
+    panel.appendChild(tbWrap);
+  } else {
+    const ph = document.createElement('div'); ph.className = 'panel-header';
+    ph.insertAdjacentHTML('beforeend', '<span class="badge" style="background:' + r.color + '20;color:' + r.color + '">' + capitalize(r.adapter) + '</span>');
+    const t = document.createElement('span'); t.className = 'title'; t.textContent = r.title; ph.appendChild(t);
+    const mb = document.createElement('span'); mb.className = 'minimize-btn'; mb.textContent = '▼';
+    mb.addEventListener('click', function() { expandedPanel = false; render(); }); ph.appendChild(mb);
+    const eb = document.createElement('span'); eb.className = 'end-btn'; eb.textContent = 'End'; ph.appendChild(eb);
+    panel.appendChild(ph);
+  }
+
+  const pc = document.createElement('div'); pc.className = 'panel-chat';
+  r.messages.forEach(function(m) {
+    const msg = document.createElement('div'); msg.className = 'msg ' + (m.role === 'user' ? 'user' : 'assistant');
+    msg.style.fontSize = '12px'; msg.style.padding = '8px 12px'; msg.textContent = m.text;
+    if (m.role === 'assistant') {
+      const act = document.createElement('div'); act.className = 'actions';
+      const sb = document.createElement('button'); sb.textContent = '↩ Send back'; sb.style.fontSize = '10px'; act.appendChild(sb);
+      msg.appendChild(act);
+    }
+    pc.appendChild(msg);
+  });
+  panel.appendChild(pc);
+
+  const pi = document.createElement('div'); pi.className = 'panel-input';
+  const inp = document.createElement('input'); inp.placeholder = 'Reply to ' + capitalize(r.adapter) + ' review...'; pi.appendChild(inp);
+  const btn = document.createElement('button'); btn.textContent = '➤'; pi.appendChild(btn);
+  panel.appendChild(pi);
+
+  return panel;
+}
+
+function buildSinglePanel(r) {
+  const w = document.createElement('div');
+  w.style.background = '#0f0f11'; w.style.borderTop = '2px solid ' + r.color + '40'; w.style.borderRadius = '16px 16px 0 0';
+  const handle = document.createElement('div'); handle.className = 'handle';
+  handle.addEventListener('click', function() { expandedPanel = false; render(); }); w.appendChild(handle);
+  const ph = document.createElement('div'); ph.className = 'panel-header';
+  ph.insertAdjacentHTML('beforeend', '<span class="badge" style="background:' + r.color + '20;color:' + r.color + '">' + capitalize(r.adapter) + '</span>');
+  const t = document.createElement('span'); t.className = 'title'; t.textContent = r.title; ph.appendChild(t);
+  const mb = document.createElement('span'); mb.className = 'minimize-btn'; mb.textContent = '▼';
+  mb.addEventListener('click', function() { expandedPanel = false; render(); }); ph.appendChild(mb);
+  const eb = document.createElement('span'); eb.className = 'end-btn'; eb.textContent = 'End'; ph.appendChild(eb);
+  w.appendChild(ph);
+  const pc = document.createElement('div'); pc.className = 'panel-chat'; pc.style.maxHeight = '200px';
+  r.messages.forEach(function(m) {
+    const msg = document.createElement('div'); msg.className = 'msg ' + (m.role === 'user' ? 'user' : 'assistant');
+    msg.style.fontSize = '12px'; msg.style.padding = '8px 12px'; msg.textContent = m.text; pc.appendChild(msg);
+  });
+  w.appendChild(pc);
+  const pi = document.createElement('div'); pi.className = 'panel-input';
+  const inp = document.createElement('input'); inp.placeholder = 'Reply to ' + capitalize(r.adapter) + ' review...'; pi.appendChild(inp);
+  const btn = document.createElement('button'); btn.textContent = '➤'; pi.appendChild(btn);
+  w.appendChild(pi);
+  return w;
+}
+
+function buildMinBar(r, i) {
+  const bar = document.createElement('div'); bar.className = 'minimized-bar';
+  bar.style.borderTop = '1px solid ' + r.color + '20';
+  bar.addEventListener('click', function() { activeTab = i; expandedPanel = true; render(); });
+  const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = r.color; bar.appendChild(dot);
+  const info = document.createElement('span'); info.className = 'info';
+  info.insertAdjacentHTML('beforeend', '<span style="color:' + r.color + ';font-weight:600">' + capitalize(r.adapter) + '</span> ' + r.title + ' · active');
+  bar.appendChild(info);
+  const exp = document.createElement('span'); exp.className = 'expand-btn'; exp.textContent = '▲ Expand'; bar.appendChild(exp);
+  const end = document.createElement('span'); end.className = 'end-btn'; end.textContent = 'End'; bar.appendChild(end);
+  return bar;
+}
+
+function buildCombinedBar(ar) {
+  const bar = document.createElement('div'); bar.className = 'minimized-bar'; bar.style.borderTop = '1px solid #27272a';
+  bar.addEventListener('click', function() { expandedPanel = true; render(); });
+  ar.forEach(function(r) {
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = r.color; bar.appendChild(dot);
+  });
+  const info = document.createElement('span'); info.className = 'info';
+  const names = ar.map(function(r) { return '<span style="color:' + r.color + '">' + capitalize(r.adapter) + '</span>'; }).join(' · ');
+  info.insertAdjacentHTML('beforeend', ar.length + ' reviews: ' + names);
+  bar.appendChild(info);
+  const exp = document.createElement('span'); exp.className = 'expand-btn'; exp.textContent = '▲ Expand'; bar.appendChild(exp);
+  return bar;
+}
+
+buildControls();
+render();
+</script>
+</body>
+</html>

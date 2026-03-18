@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeTap Colors</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#09090b;color:#fafafa;padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+h2{font:600 18px monospace;margin-bottom:12px;text-align:center}
+h3{font:500 11px monospace;color:#888;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{padding:14px 8px;background:#18181b;border:2px solid #333;border-radius:10px;color:#fafafa;font:11px monospace;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
+.btn.on{border-color:#4ade80;background:#0a1a0f}
+.dot{width:28px;height:28px;border-radius:6px;margin:0 auto 6px;border:1px solid rgba(255,255,255,.15)}
+.preview{background:#09090b;border:2px solid #333;border-radius:14px;overflow:hidden;margin:20px 0}
+.phdr{padding:10px 14px;border-bottom:1px solid #333;font:13px monospace}
+.pmsg{padding:12px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:82%;padding:10px 14px;font-size:13px;line-height:1.5}
+.m.u{align-self:flex-end;border-radius:14px 14px 4px 14px}
+.m.a{align-self:flex-start;background:#18181b;border:1px solid #27272a;color:#fafafa;border-radius:14px 14px 14px 4px}
+.m.a code{font:11px monospace;padding:1px 4px;border-radius:3px;background:#09090b}
+.badge{display:inline-block;padding:4px 10px;border-radius:6px;font:bold 12px monospace;margin:8px 0}
+.badge.g{background:#166534;color:#4ade80}
+.badge.y{background:#854d0e;color:#fbbf24}
+.badge.r{background:#7f1d1d;color:#fca5a5}
+.ctrls{margin:16px 0}
+.crow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.crow label{font:11px monospace;color:#aaa;min-width:50px}
+.crow input[type=color]{width:44px;height:34px;border:1px solid #444;border-radius:6px;background:none;cursor:pointer;padding:2px}
+.crow input[type=range]{flex:1;accent-color:#4ade80;height:6px}
+.crow span{font:11px monospace;color:#666;min-width:30px;text-align:right}
+.out{background:#111;border:1px solid #333;border-radius:10px;padding:14px;margin:16px 0}
+.out pre{font:12px monospace;color:#aaa;white-space:pre-wrap;line-height:1.6}
+.cpb{display:block;width:100%;margin-top:10px;padding:10px;background:#18181b;border:1px solid #333;border-radius:8px;color:#fafafa;font:12px monospace;cursor:pointer;text-align:center}
+.cpb:active{background:#222}
+</style>
+</head>
+<body>
+<h2>CodeTap Colors</h2>
+
+<h3>Choose a Preset</h3>
+<div class="grid" id="G"></div>
+
+<div id="CI"></div>
+
+<div class="preview"><div class="phdr">&#8249; my-project</div><div class="pmsg" id="M"></div></div>
+
+<h3>Fine-tune</h3>
+<div class="ctrls">
+<div class="crow"><label>Accent</label><input type="color" id="aC" value="#4ade80" oninput="S.a=this.value;S.pi=-1;R()"></div>
+<div class="crow"><label>Bubble</label><input type="color" id="bC" value="#166534" oninput="S.b=this.value;S.pi=-1;R()"></div>
+<div class="crow"><label>Text</label><input type="color" id="tC" value="#ffffff" oninput="S.t=this.value;S.pi=-1;R()"></div>
+<div class="crow"><label>Opacity</label><input type="range" id="oR" min="10" max="100" value="100" oninput="S.o=+this.value;S.pi=-1;R()"><span id="oV">100%</span></div>
+<div class="crow"><label>Code</label><input type="color" id="kC" value="#4ade80" oninput="S.k=this.value;S.pi=-1;R()"></div>
+</div>
+
+<div class="out"><pre id="PO"></pre><button class="cpb" id="CB">Copy Prompt</button></div>
+
+<script>
+var P=[
+{n:"Forest Green",a:"#4ade80",b:"#166534",t:"#ffffff",o:100,k:"#4ade80"},
+{n:"Green Tint",a:"#4ade80",b:"#4ade80",t:"#fafafa",o:18,k:"#4ade80"},
+{n:"Emerald",a:"#34d399",b:"#065f46",t:"#d1fae5",o:100,k:"#34d399"},
+{n:"Teal",a:"#2dd4bf",b:"#115e59",t:"#ccfbf1",o:100,k:"#2dd4bf"},
+{n:"Cyan",a:"#22d3ee",b:"#164e63",t:"#e0f7fa",o:100,k:"#22d3ee"},
+{n:"Soft Mint",a:"#86efac",b:"#14532d",t:"#bbf7d0",o:100,k:"#86efac"},
+{n:"Matrix",a:"#22c55e",b:"#052e16",t:"#4ade80",o:100,k:"#22c55e"},
+{n:"BAD Current",a:"#4ade80",b:"#4ade80",t:"#ffffff",o:100,k:"#4ade80"}
+];
+var S={a:"#4ade80",b:"#166534",t:"#ffffff",o:100,k:"#4ade80",pi:0};
+var MS=[
+{r:"u",t:"Can you help me refactor the auth module?"},
+{r:"a",t:"Sure! I will read <code>auth.ts</code> and <code>middleware.ts</code>."},
+{r:"u",t:"Also check for hardcoded secrets"},
+{r:"a",t:"Found <code>API_KEY</code> in <code>config.ts:42</code> and JWT secret in <code>auth.ts:18</code>."},
+{r:"u",t:"Fix them please"}
+];
+function h2r(h){h=h.replace("#","");return[parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]}
+function lum(r,g,b){var c=[r,g,b].map(function(v){v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)});return .2126*c[0]+.7152*c[1]+.0722*c[2]}
+function rat(fg,bg){var f=h2r(fg),b=h2r(bg);var l1=lum(f[0],f[1],f[2]),l2=lum(b[0],b[1],b[2]);return(Math.max(l1,l2)+.05)/(Math.min(l1,l2)+.05)}
+function bld(fg,bg,op){var f=h2r(fg),b=h2r(bg),a=op/100;return"#"+[0,1,2].map(function(i){return Math.round(f[i]*a+b[i]*(1-a)).toString(16).padStart(2,"0")}).join("")}
+function R(){
+var m=document.getElementById("M");var h="";
+for(var i=0;i<MS.length;i++){var msg=MS[i];
+if(msg.r==="u"){var bg=S.o<100?"rgba("+h2r(S.b).join(",")+","+(S.o/100)+")":S.b;
+h+="<div class='m u' style='background:"+bg+";color:"+S.t+"'>"+msg.t+"</div>"}
+else{h+="<div class='m a'>"+msg.t.replace(/<code>/g,"<code style='color:"+S.k+"'>")+"</div>"}}
+m.innerHTML=h;
+var g=document.getElementById("G");var gh="";
+for(var i=0;i<P.length;i++){var p=P[i];var c=p.o<100?bld(p.b,"#09090b",p.o):p.b;
+gh+="<div class='btn"+(S.pi===i?" on":"")+"' onclick='ap("+i+")'><div class='dot' style='background:"+c+"'></div>"+p.n+"</div>"}
+g.innerHTML=gh;
+var eb=S.o<100?bld(S.b,"#09090b",S.o):S.b;
+var r=rat(S.t,eb).toFixed(1);
+var lv=r>=7?"AAA":r>=4.5?"AA":r>=3?"AA-lg":"FAIL";
+var cl=r>=4.5?"g":r>=3?"y":"r";
+document.getElementById("CI").innerHTML="<span class='badge "+cl+"'>Contrast: "+r+":1 "+lv+"</span>";
+document.getElementById("oV").textContent=S.o+"%";
+document.getElementById("aC").value=S.a;
+document.getElementById("bC").value=S.b;
+document.getElementById("tC").value=S.t;
+document.getElementById("oR").value=S.o;
+document.getElementById("kC").value=S.k;
+var parts=[];
+if(S.a!=="#4ade80")parts.push("accent color to "+S.a);
+if(S.o<100){parts.push("user bubble to "+S.b+" at "+S.o+"% opacity (effective "+eb+")")}
+else if(S.b!=="#4ade80")parts.push("user bubble background to "+S.b);
+if(S.t!=="#ffffff")parts.push("user bubble text to "+S.t);
+if(S.k!==S.a)parts.push("code highlight to "+S.k);
+document.getElementById("PO").textContent=parts.length?"Update CodeTap colors:\n- "+parts.join("\n- "):"No changes.";
+}
+function ap(i){S=Object.assign({},P[i],{pi:i});R()}
+document.getElementById("CB").addEventListener("click",function(){
+var t=document.getElementById("PO").textContent;
+navigator.clipboard.writeText(t);this.textContent="Copied!";
+var b=this;setTimeout(function(){b.textContent="Copy Prompt"},1500)});
+R();
+</script>
+</body>
+</html>

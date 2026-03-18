@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SVG vs ASCII — Pixel Comparison</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'JetBrains Mono', monospace; background: #09090b; color: #fafafa; display: flex; flex-direction: column; align-items: center; padding: 40px; gap: 40px; }
+  .row { display: flex; gap: 40px; align-items: center; }
+  .label { font-size: 11px; color: #71717a; text-align: center; margin-bottom: 8px; }
+  pre { color: #22c55e; font-size: 14px; line-height: 1.0; margin: 0; }
+  .divider { width: 1px; height: 80px; background: #27272a; }
+</style>
+</head>
+<body>
+
+<!--
+  ASCII art character-by-character breakdown (8 cols × 5 rows):
+  Each char occupies 1 cell width. Block chars fill portions:
+
+  Row 0: ▐▌    ▐▌
+    col0=▐(right half) col1=▌(left half) col2-5=space col6=▐ col7=▌
+
+  Row 1: ▐█    █▌
+    col0=▐ col1=█(full) col2-5=space col6=█ col7=▌
+
+  Row 2: ▐██▄▄██▌
+    col0=▐ col1=█ col2=█ col3=▄(bottom half) col4=▄ col5=█ col6=█ col7=▌
+
+  Row 3:  ▀████▀ (space)
+    col0=space col1=▀(top half) col2-5=█ col6=▀ col7=space
+
+  Row 4:    ██   (spaces)
+    col0-2=space col3=█ col4=█ col5-7=space
+
+  In pixel grid: each char = 2px wide × 2px tall
+  Half blocks fill half the cell
+  Grid = 16px wide × 10px tall
+-->
+
+<div>
+  <div class="label">ASCII (reference)</div>
+  <pre>▐▌    ▐▌
+▐█    █▌
+▐██▄▄██▌
+ ▀████▀
+   ██</pre>
+</div>
+
+<div class="row">
+  <div>
+    <div class="label">SVG (should match ↑)</div>
+    <svg width="112" height="70" viewBox="0 0 16 10" style="image-rendering: pixelated;">
+      <!-- Row 0: ▐▌    ▐▌ -->
+      <!-- col0: ▐ = right half of cell (x=1) -->
+      <rect x="1" y="0" width="1" height="2" fill="#22c55e"/>
+      <!-- col1: ▌ = left half of cell (x=2) -->
+      <rect x="2" y="0" width="1" height="2" fill="#22c55e"/>
+      <!-- col6: ▐ -->
+      <rect x="13" y="0" width="1" height="2" fill="#22c55e"/>
+      <!-- col7: ▌ -->
+      <rect x="14" y="0" width="1" height="2" fill="#22c55e"/>
+
+      <!-- Row 1: ▐█    █▌ -->
+      <rect x="1" y="2" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="2" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="2" width="2" height="2" fill="#22c55e"/>
+      <rect x="14" y="2" width="1" height="2" fill="#22c55e"/>
+
+      <!-- Row 2: ▐██▄▄██▌ -->
+      <rect x="1" y="4" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="4" y="4" width="2" height="2" fill="#22c55e"/>
+      <!-- ▄▄ = bottom half only -->
+      <rect x="6" y="5" width="2" height="1" fill="#22c55e"/>
+      <rect x="8" y="5" width="2" height="1" fill="#22c55e"/>
+      <rect x="10" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="14" y="4" width="1" height="2" fill="#22c55e"/>
+
+      <!-- Row 3:  ▀████▀  -->
+      <!-- ▀ = top half only -->
+      <rect x="2" y="6" width="2" height="1" fill="#22c55e"/>
+      <rect x="4" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="6" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="8" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="10" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="6" width="2" height="1" fill="#22c55e"/>
+
+      <!-- Row 4:    ██    -->
+      <rect x="6" y="8" width="2" height="2" fill="#22c55e"/>
+      <rect x="8" y="8" width="2" height="2" fill="#22c55e"/>
+    </svg>
+  </div>
+
+  <div class="divider"></div>
+
+  <div>
+    <div class="label">ASCII (same size)</div>
+    <pre style="font-size: 14px; line-height: 1.0;">▐▌    ▐▌
+▐█    █▌
+▐██▄▄██▌
+ ▀████▀
+   ██</pre>
+  </div>
+</div>
+
+<div>
+  <div class="label">README title preview</div>
+  <div style="display: flex; align-items: center; gap: 12px;">
+    <svg width="48" height="30" viewBox="0 0 16 10" style="image-rendering: pixelated;">
+      <rect x="1" y="0" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="0" width="1" height="2" fill="#22c55e"/>
+      <rect x="13" y="0" width="1" height="2" fill="#22c55e"/>
+      <rect x="14" y="0" width="1" height="2" fill="#22c55e"/>
+      <rect x="1" y="2" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="2" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="2" width="2" height="2" fill="#22c55e"/>
+      <rect x="14" y="2" width="1" height="2" fill="#22c55e"/>
+      <rect x="1" y="4" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="4" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="6" y="5" width="2" height="1" fill="#22c55e"/>
+      <rect x="8" y="5" width="2" height="1" fill="#22c55e"/>
+      <rect x="10" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="4" width="2" height="2" fill="#22c55e"/>
+      <rect x="14" y="4" width="1" height="2" fill="#22c55e"/>
+      <rect x="2" y="6" width="2" height="1" fill="#22c55e"/>
+      <rect x="4" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="6" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="8" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="10" y="6" width="2" height="2" fill="#22c55e"/>
+      <rect x="12" y="6" width="2" height="1" fill="#22c55e"/>
+      <rect x="6" y="8" width="2" height="2" fill="#22c55e"/>
+      <rect x="8" y="8" width="2" height="2" fill="#22c55e"/>
+    </svg>
+    <span style="font-size: 32px; font-weight: 700; letter-spacing: 2px;">ClawTap</span>
+  </div>
+</div>
+
+</body>
+</html>

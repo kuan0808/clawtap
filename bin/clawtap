@@ -1,0 +1,494 @@
+#!/bin/bash
+# clawtap — CLI for managing AI coding sessions (Claude, Codex, Gemini)
+#
+# Usage:
+#   clawtap                                 # Start server, show connection URLs
+#   clawtap new                             # New Claude session in tmux
+#   clawtap new --adapter codex             # New Codex session
+#   clawtap -a                              # List active sessions (current project)
+#   clawtap -a --adapter gemini             # List only Gemini sessions (current project)
+#   clawtap -A                              # List ALL active sessions (all projects)
+#   clawtap --continue                      # Resume most recent session
+#   clawtap --continue --adapter codex      # Resume most recent Codex session
+#   clawtap --resume <session-id>           # Resume a specific session
+#   clawtap hooks install --adapter claude  # Install hooks for Claude only
+#   clawtap stop                            # Stop the server
+#
+# Sessions run inside tmux "clawtap".
+# Mobile app auto-connects for real-time sync.
+
+TMUX_SESSION="clawtap"
+YOLO="--dangerously-skip-permissions"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SERVER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PORT="${PORT:-3456}"
+PID_FILE="$HOME/.clawtap/server.pid"
+
+# --- Parse --adapter flag (before any command handling) ---
+# Helper: set adapter variables from adapter name
+set_adapter() {
+  case "$1" in
+    claude) ADAPTER="claude"; ADAPTER_CMD="claude"; YOLO="--dangerously-skip-permissions" ;;
+    codex)  ADAPTER="codex";  ADAPTER_CMD="codex";  YOLO="--dangerously-bypass-approvals-and-sandbox" ;;
+    gemini) ADAPTER="gemini"; ADAPTER_CMD="gemini"; YOLO="--approval-mode yolo" ;;
+  esac
+}
+
+ADAPTER="claude"
+ADAPTER_CMD="claude"
+ADAPTER_EXPLICIT=false
+prev_arg=""
+for arg in "$@"; do
+  if [ "$prev_arg" = "--adapter" ]; then
+    ADAPTER_EXPLICIT=true
+    case "$arg" in
+      claude) set_adapter claude ;;
+      codex)  set_adapter codex ;;
+      gemini) set_adapter gemini ;;
+      *)      echo "Unknown adapter: $arg"; exit 1 ;;
+    esac
+  fi
+  prev_arg="$arg"
+done
+# Strip --adapter and its value from positional args
+CLEANED_ARGS=()
+skip_next=false
+for arg in "$@"; do
+  if $skip_next; then skip_next=false; continue; fi
+  if [ "$arg" = "--adapter" ]; then skip_next=true; continue; fi
+  CLEANED_ARGS+=("$arg")
+done
+set -- "${CLEANED_ARGS[@]}"
+
+# --- CLI flags (no server needed) ---
+case "$1" in
+  --version|-v)
+    printf 'clawtap v%s\n' "$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$SERVER_DIR/package.json" | head -1)"
+    exit 0 ;;
+  --help|-h)
+    cat << 'HELP'
+Usage: clawtap [options] [cli args...]
+
+Commands:
+  new                    Start a new AI coding session in tmux
+  stop                   Stop the server (graceful cleanup)
+  hooks install          Install hooks (all adapters, or use --adapter)
+  hooks uninstall        Remove hooks (all adapters, or use --adapter)
+  cert                   Generate self-signed HTTPS certificate
+
+Options:
+  -v, --version          Show version
+  -h, --help             Show this help
+  -a                     List active sessions (current project)
+  -A                     List ALL active sessions (all projects)
+  --adapter <name>       Adapter: claude (default), codex, gemini
+  --resume <session-id>  Resume a specific session by ID
+  --continue             Resume the most recent session
+  <any args>             Pass through to the adapter CLI
+
+Examples:
+  clawtap new                             # New Claude session
+  clawtap new --adapter codex             # New Codex session
+  clawtap -a --adapter gemini             # List Gemini sessions (this project)
+  clawtap --continue --adapter codex      # Resume latest Codex session
+  clawtap hooks install --adapter claude  # Install hooks for Claude only
+HELP
+    exit 0 ;;
+  stop)
+    if [ ! -f "$PID_FILE" ]; then
+      echo "Server is not running."
+      # Safety net: clean up hooks in case of previous ungraceful shutdown
+      npx tsx "$SCRIPT_DIR/hooks-cli.mjs" uninstall 2>/dev/null
+      exit 0
+    fi
+    PID=$(cat "$PID_FILE")
+    if ! kill -0 "$PID" 2>/dev/null; then
+      echo "Server process (PID $PID) not running. Cleaning up stale PID file."
+      rm -f "$PID_FILE"
+      npx tsx "$SCRIPT_DIR/hooks-cli.mjs" uninstall 2>/dev/null
+      exit 0
+    fi
+    echo "Stopping ClawTap server (PID $PID)..."
+    kill "$PID"
+    # Wait for graceful shutdown (up to 5s)
+    for i in $(seq 1 10); do
+      if ! kill -0 "$PID" 2>/dev/null; then
+        echo "Server stopped."
+        # Safety net: ensure hooks are cleaned up even if server didn't do it
+        npx tsx "$SCRIPT_DIR/hooks-cli.mjs" uninstall 2>/dev/null
+        exit 0
+      fi
+      sleep 0.5
+    done
+    echo "Server didn't stop gracefully, forcing..."
+    kill -9 "$PID" 2>/dev/null
+    rm -f "$PID_FILE"
+    # Graceful shutdown failed — force cleanup hooks
+    npx tsx "$SCRIPT_DIR/hooks-cli.mjs" uninstall 2>/dev/null
+    echo "Server killed."
+    exit 0 ;;
+  hooks)
+    if [ "$ADAPTER_EXPLICIT" = true ]; then
+      npx tsx "$SCRIPT_DIR/hooks-cli.mjs" "$2" "$ADAPTER"
+    else
+      npx tsx "$SCRIPT_DIR/hooks-cli.mjs" "$2"
+    fi
+    exit 0 ;;
+  cert)
+    CERT_DIR="$HOME/.clawtap"
+    CERT_FILE="$CERT_DIR/cert.pem"
+    KEY_FILE="$CERT_DIR/key.pem"
+    mkdir -p "$CERT_DIR"
+    if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
+      echo "Certificate already exists at $CERT_DIR/"
+      echo "  cert.pem  $(openssl x509 -in "$CERT_FILE" -noout -enddate 2>/dev/null | sed 's/notAfter=/Expires: /')"
+      echo ""
+      read -p "Regenerate? (y/N) " REGEN
+      [ "$REGEN" != "y" ] && [ "$REGEN" != "Y" ] && exit 0
+    fi
+    echo "Generating self-signed certificate..."
+    openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$KEY_FILE" \
+      -out "$CERT_FILE" \
+      -days 365 \
+      -subj "/CN=ClawTap" \
+      -addext "subjectAltName=IP:$(ipconfig getifaddr en0 2>/dev/null || echo '0.0.0.0')" \
+      2>/dev/null
+    if [ $? -ne 0 ]; then
+      echo "Failed to generate certificate. Is openssl installed?"
+      exit 1
+    fi
+    chmod 600 "$KEY_FILE"
+    echo ""
+    echo "Certificate generated:"
+    echo "  $CERT_FILE"
+    echo "  $KEY_FILE"
+    echo ""
+    echo "Restart the server to use HTTPS:"
+    echo "  clawtap stop && clawtap"
+    echo ""
+    echo "To trust on your phone (iOS):"
+    echo "  1. Send ~/.clawtap/cert.pem to your phone (AirDrop, email, etc.)"
+    echo "  2. Open it → Install Profile"
+    echo "  3. Settings → General → About → Certificate Trust Settings"
+    echo "     → Enable full trust for 'ClawTap'"
+    echo ""
+    echo "To trust on your phone (Android):"
+    echo "  1. Send ~/.clawtap/cert.pem to your phone"
+    echo "  2. Settings → Security → Install certificate → CA certificate"
+    exit 0 ;;
+esac
+
+# --- Server management ---
+
+# Detect HTTPS mode
+if [ -f "$HOME/.clawtap/cert.pem" ] && [ -f "$HOME/.clawtap/key.pem" ]; then
+  PROTOCOL="https"
+  CURL_OPTS="-k"  # allow self-signed certs
+else
+  PROTOCOL="http"
+  CURL_OPTS=""
+fi
+
+ensure_server() {
+  # Check if server is already running
+  if curl -sf $CURL_OPTS --connect-timeout 2 "$PROTOCOL://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Fallback: check PID file (written by server on startup)
+  if [ -f "$PID_FILE" ]; then
+    SAVED_PID=$(cat "$PID_FILE")
+    if kill -0 "$SAVED_PID" 2>/dev/null; then
+      # Server process alive — retry health check with patience
+      for i in $(seq 1 5); do
+        if curl -sf $CURL_OPTS --connect-timeout 2 "$PROTOCOL://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+          return 0
+        fi
+        sleep 0.5
+      done
+      echo "Server process running (PID $SAVED_PID) but not responding on port $PORT"
+      echo "Check: $HOME/.clawtap/server.log"
+      exit 1
+    else
+      # Stale PID file — process dead, clean up
+      rm -f "$PID_FILE"
+    fi
+  fi
+
+  # Password is required
+  if [ -z "$CLAUDE_UI_PASSWORD" ]; then
+    echo "ClawTap server not running."
+    echo ""
+    echo "Set a password and try again:"
+    echo "  export CLAUDE_UI_PASSWORD=your-password"
+    echo "  clawtap"
+    echo ""
+    echo "Or start the server separately:"
+    echo "  CLAUDE_UI_PASSWORD=your-password npm start"
+    exit 1
+  fi
+
+  echo "Starting ClawTap server on port $PORT..."
+  CLAUDE_UI_PASSWORD="$CLAUDE_UI_PASSWORD" PORT="$PORT" \
+    nohup npx tsx "$SERVER_DIR/server/index.ts" >"$HOME/.clawtap/server.log" 2>&1 &
+  SERVER_PID=$!
+
+  # Wait for server to be ready (up to 10s)
+  for i in $(seq 1 20); do
+    if curl -sf $CURL_OPTS --connect-timeout 2 "$PROTOCOL://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+      echo "ClawTap running on $PROTOCOL://0.0.0.0:$PORT (pid $SERVER_PID)"
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  echo "Server failed to start. Check $HOME/.clawtap/server.log"
+  exit 1
+}
+
+ensure_server
+
+# Authenticate with the ClawTap server API
+get_auth_token() {
+  local BODY
+  BODY=$(printf '%s' "$CLAUDE_UI_PASSWORD" | python3 -c 'import sys,json; print(json.dumps({"password": sys.stdin.read()}))' 2>/dev/null)
+  curl -sk -X POST "${PROTOCOL}://localhost:${PORT}/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "$BODY" 2>/dev/null | \
+    python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))' 2>/dev/null
+}
+
+require_auth() {
+  AUTH_TOKEN=$(get_auth_token)
+  if [ -z "$AUTH_TOKEN" ]; then
+    echo "Error: Failed to authenticate with ClawTap server"
+    exit 1
+  fi
+}
+
+# No args → just start server, print URLs, exit
+if [ $# -eq 0 ]; then
+  LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "")
+  TS_HOST=$(tailscale status --self --json 2>/dev/null | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" 2>/dev/null || echo "")
+
+  echo ""
+  echo "ClawTap server is running on port $PORT"
+  echo ""
+  echo "  Open on your phone:"
+  if [ -n "$TS_HOST" ]; then echo "    https://${TS_HOST}  (Tailscale)"; fi
+  if [ -n "$LAN_IP" ]; then echo "    ${PROTOCOL}://${LAN_IP}:${PORT}  (LAN)"; fi
+  echo "    http://localhost:${PORT}  (this machine)"
+  echo ""
+  echo "  New session:   clawtap new [--adapter claude|codex|gemini]"
+  echo "  List sessions: clawtap -a"
+  echo "  Stop server:   clawtap stop"
+  echo ""
+  exit 0
+fi
+
+# "new" subcommand → create tmux session (like old no-args behavior)
+if [ "$1" = "new" ]; then
+  shift
+fi
+
+# Ensure tmux session exists
+tmux has-session -t "$TMUX_SESSION" 2>/dev/null || \
+  tmux new-session -d -s "$TMUX_SESSION" -n main
+
+# --- Attach mode (query server API for accurate adapter info) ---
+if [ "$1" = "--attach" ] || [ "$1" = "-a" ] || [ "$1" = "-A" ]; then
+  ALL_MODE=false
+  [ "$1" = "-A" ] && ALL_MODE=true
+
+  require_auth
+
+  SESSIONS_JSON=$(curl -s $CURL_OPTS "$PROTOCOL://localhost:$PORT/api/active-sessions" \
+    -H "Authorization: Bearer $AUTH_TOKEN")
+
+  if ! echo "$SESSIONS_JSON" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    echo "Error: Failed to fetch sessions from server"
+    exit 1
+  fi
+
+  # Filter with Python: by adapter (if explicit), by cwd (if -a mode)
+  FILTERED=$(CWD="$(pwd)" ADAPTER="$ADAPTER" ADAPTER_EXPLICIT="$ADAPTER_EXPLICIT" ALL_MODE="$ALL_MODE" python3 -c "
+import sys, json, os
+sessions = json.load(sys.stdin)
+adapter_filter = os.environ.get('ADAPTER') if os.environ.get('ADAPTER_EXPLICIT') == 'true' else None
+cwd_filter = os.environ.get('CWD') if os.environ.get('ALL_MODE') == 'false' else None
+results = []
+for s in sessions:
+    if adapter_filter and s.get('adapter','') != adapter_filter:
+        continue
+    if cwd_filter and s.get('cwd','') != cwd_filter:
+        continue
+    results.append(s)
+# Sort by lastActivity descending
+results.sort(key=lambda x: x.get('lastActivity',''), reverse=True)
+json.dump(results, sys.stdout)
+" <<< "$SESSIONS_JSON" 2>/dev/null)
+
+  COUNT=$(echo "$FILTERED" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null)
+
+  if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
+    if [ "$ALL_MODE" = true ]; then
+      echo "No active sessions."
+    else
+      PROJECT_NAME=$(basename "$(pwd)")
+      HINT=""
+      [ "$ADAPTER_EXPLICIT" = true ] && HINT=" ($ADAPTER)"
+      echo "No active sessions${HINT} for project '$PROJECT_NAME'."
+      echo "Run 'clawtap -A' to see all projects, or 'clawtap new' to start a new session."
+    fi
+    exit 0
+  fi
+
+  if [ "$ALL_MODE" = true ]; then
+    echo "Active sessions (all projects):"
+  else
+    echo "Active sessions for $(basename "$(pwd)"):"
+  fi
+  [ "$ADAPTER_EXPLICIT" = true ] && echo "  (filtered: $ADAPTER)"
+  echo ""
+
+  # Display sessions
+  DISPLAY_OUTPUT=$(ALL_MODE="$ALL_MODE" python3 -c "
+import sys, json, os
+sessions = json.load(sys.stdin)
+home = os.path.expanduser('~')
+colors = {'claude': '\033[33m[Claude]\033[0m', 'codex': '\033[32m[Codex]\033[0m', 'gemini': '\033[34m[Gemini]\033[0m'}
+all_mode = os.environ.get('ALL_MODE') == 'true'
+for i, s in enumerate(sessions, 1):
+    label = colors.get(s.get('adapter',''), '\033[90m[?]\033[0m')
+    sid = s.get('sessionId','?')
+    prompt = (s.get('firstPrompt','') or '')[:60]
+    cwd = s.get('cwd','')
+    if cwd.startswith(home):
+        cwd = '~' + cwd[len(home):]
+    print(f'  {i}) {label} {sid}')
+    if all_mode and cwd:
+        print(f'     Dir:  {cwd}')
+    if prompt:
+        print(f'     {prompt}')
+    print()
+" <<< "$FILTERED" 2>/dev/null)
+  echo "$DISPLAY_OUTPUT"
+
+  # Build session ID array for selection
+  declare -a SESS_IDS
+  while IFS= read -r sid; do
+    [ -z "$sid" ] && continue
+    SESS_IDS+=("$sid")
+  done < <(echo "$FILTERED" | python3 -c "import sys,json; [print(s['sessionId']) for s in json.load(sys.stdin)]" 2>/dev/null)
+
+  read -p "Select (1-${#SESS_IDS[@]}): " CHOICE
+  if [ -n "$CHOICE" ] && [ "$CHOICE" -ge 1 ] 2>/dev/null && [ "$CHOICE" -le "${#SESS_IDS[@]}" ] 2>/dev/null; then
+    SELECTED="${SESS_IDS[$((CHOICE-1))]}"
+    tmux select-window -t "$TMUX_SESSION:$SELECTED"
+    tmux attach -t "$TMUX_SESSION"
+  else
+    echo "Cancelled."
+  fi
+  exit 0
+fi
+
+# --- Resume mode ---
+if [ "$1" = "--resume" ] && [ -n "$2" ]; then
+  RESUME_ID="$2"
+  shift 2
+
+  require_auth
+
+  BODY=$(printf '%s\n%s\n%s' "$RESUME_ID" "$ADAPTER" "$(pwd)" | python3 -c 'import sys,json; s,a,c=sys.stdin.read().strip().split("\n"); print(json.dumps({"sessionId":s,"adapter":a,"cwd":c}))' 2>/dev/null)
+  RESULT=$(curl -s $CURL_OPTS -X POST "$PROTOCOL://localhost:$PORT/api/sessions/resume" \
+    -H "Authorization: Bearer $AUTH_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$BODY")
+  SESSION_ID=$(echo "$RESULT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("sessionId",""))' 2>/dev/null)
+
+  if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then
+    echo "Error: Failed to resume session"
+    echo "$RESULT"
+    exit 1
+  fi
+
+  # Check if window already exists (session might already be active)
+  if tmux list-windows -t "$TMUX_SESSION" -F '#{window_name}' 2>/dev/null | grep -q "^${SESSION_ID}$"; then
+    tmux select-window -t "$TMUX_SESSION:$SESSION_ID"
+  else
+    echo "Session resumed but window not found. Try refreshing."
+  fi
+
+  tmux attach -t "$TMUX_SESSION"
+  exit 0
+
+# --- Continue mode ---
+elif [ "$1" = "--continue" ]; then
+  shift
+
+  require_auth
+
+  # When --adapter is explicit, query API and pick most recent for that adapter
+  if [ "$ADAPTER_EXPLICIT" = true ]; then
+    SESSIONS_JSON=$(curl -s $CURL_OPTS "$PROTOCOL://localhost:$PORT/api/active-sessions?adapter=$ADAPTER" \
+      -H "Authorization: Bearer $AUTH_TOKEN")
+    LATEST=$(echo "$SESSIONS_JSON" | python3 -c "
+import sys, json
+sessions = json.load(sys.stdin)
+if not sessions:
+    sys.exit(1)
+sessions.sort(key=lambda x: x.get('lastActivity',''), reverse=True)
+print(sessions[0]['sessionId'])
+" 2>/dev/null)
+    if [ -z "$LATEST" ]; then
+      echo "No active $ADAPTER sessions to continue."
+      echo "Run 'clawtap -a --adapter $ADAPTER' to check, or 'clawtap new --adapter $ADAPTER' to start one."
+      exit 1
+    fi
+  else
+    LATEST=$(tmux list-windows -t "$TMUX_SESSION" -F '#{window_activity} #{window_name}' 2>/dev/null | grep -v " main$" | sort -rn | head -1 | awk '{print $2}')
+  fi
+
+  if [ -n "$LATEST" ]; then
+    # Check if the process in the pane is still running
+    PANE_CMD=$(tmux display -t "$TMUX_SESSION:$LATEST" -p '#{pane_current_command}' 2>/dev/null)
+    if [ "$PANE_CMD" = "zsh" ] || [ "$PANE_CMD" = "bash" ]; then
+      # CLI process exited, shell is showing — resume via API
+      BODY=$(printf '%s\n%s\n%s' "$LATEST" "$ADAPTER" "$(pwd)" | python3 -c 'import sys,json; s,a,c=sys.stdin.read().strip().split("\n"); print(json.dumps({"sessionId":s,"adapter":a,"cwd":c}))' 2>/dev/null)
+      curl -s $CURL_OPTS -X POST "${PROTOCOL}://localhost:${PORT}/api/sessions/resume" \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$BODY" >/dev/null 2>&1
+    fi
+    tmux select-window -t "$TMUX_SESSION:$LATEST"
+  else
+    echo "No active sessions to continue."
+    echo "Run 'clawtap new' to start a new session."
+    exit 1
+  fi
+
+  tmux attach -t "$TMUX_SESSION"
+  exit 0
+
+# --- New session ---
+else
+  require_auth
+
+  BODY=$(printf '%s\n%s' "$ADAPTER" "$(pwd)" | python3 -c 'import sys,json; a,c=sys.stdin.read().strip().split("\n"); print(json.dumps({"adapter":a,"cwd":c}))' 2>/dev/null)
+  RESULT=$(curl -s $CURL_OPTS -X POST "$PROTOCOL://localhost:$PORT/api/sessions/start" \
+    -H "Authorization: Bearer $AUTH_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$BODY")
+  SESSION_ID=$(echo "$RESULT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("sessionId",""))' 2>/dev/null)
+
+  if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then
+    echo "Error: Failed to create session"
+    echo "$RESULT"
+    exit 1
+  fi
+
+  tmux select-window -t "$TMUX_SESSION:$SESSION_ID"
+  tmux attach -t "$TMUX_SESSION"
+fi

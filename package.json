@@ -1,0 +1,83 @@
+{
+  "name": "@kuannnn/clawtap",
+  "version": "0.1.0",
+  "description": "Use Claude Code from your phone. Real-time mobile UI synced with your desktop terminal via tmux.",
+  "type": "module",
+  "bin": {
+    "clawtap": "bin/clawtap"
+  },
+  "scripts": {
+    "dev": "concurrently \"npx tsx --watch server/index.ts\" \"vite\"",
+    "dev:server": "npx tsx server/index.ts",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "npx tsx server/index.ts",
+    "preview": "vite preview",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mobile",
+    "tmux",
+    "ai",
+    "coding-assistant"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuan0808/clawtap.git"
+  },
+  "homepage": "https://github.com/kuan0808/clawtap#readme",
+  "files": [
+    "bin/",
+    "server/",
+    "dist/",
+    "src/",
+    "index.html",
+    "vite.config.ts",
+    "tsconfig.json",
+    ".env.example"
+  ],
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@tailwindcss/typography": "^0.5.19",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.8.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.577.0",
+    "multer": "^2.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.1",
+    "smol-toml": "^1.6.1",
+    "tailwind-merge": "^3.5.0",
+    "web-push": "^3.6.7",
+    "workbox-precaching": "^7.4.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.3",
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "tailwindcss": "^4.1.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2",
+    "vite-plugin-pwa": "^1.2.0"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.worktrees/
+.superpowers/
+.DS_Store
+*.log
+tests/screenshots/
+package-lock.json
+docs/
+.server.pid
