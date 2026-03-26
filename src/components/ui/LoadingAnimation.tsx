@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
  */
 
 const sizeConfig = {
-  sm: { svgW: 24, svgH: 18, dotSize: 3, dotGap: 5, dots: 3, height: 'h-8' },
-  md: { svgW: 48, svgH: 36, dotSize: 4, dotGap: 8, dots: 5, height: 'h-12' },
-  lg: { svgW: 64, svgH: 48, dotSize: 5, dotGap: 10, dots: 6, height: 'h-16' },
+  sm: { svgW: 28, svgH: 24, dotSize: 3, dotGap: 5, dots: 3, height: 'h-10' },
+  md: { svgW: 56, svgH: 48, dotSize: 4, dotGap: 8, dots: 5, height: 'h-14' },
+  lg: { svgW: 72, svgH: 60, dotSize: 5, dotGap: 10, dots: 6, height: 'h-20' },
 } as const;
 
 interface Props {
@@ -22,7 +22,7 @@ function PixelClaw({ width, height }: { width: number; height: number }) {
     <svg
       width={width}
       height={height}
-      viewBox="0 0 8 6"
+      viewBox="-1 -2 10 10"
       style={{ imageRendering: 'pixelated' }}
       className="claw-svg"
     >
@@ -48,7 +48,7 @@ export function LoadingAnimation({ size = 'md', label, className }: Props) {
 
   return (
     <div className={cn('flex flex-col items-center gap-3', className)}>
-      <div className={cn('relative flex items-center justify-center overflow-hidden', cfg.height)}>
+      <div className={cn('relative flex items-center justify-center', cfg.height)}>
         <div className="flex items-center">
           {/* Claw walks right */}
           <div className="claw-walk">
