@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useChat } from '../hooks/useChat';
 import { ChatBody } from './ChatBody';
+import { InteractivePromptOverlay } from './InteractivePromptOverlay';
 import { getBrand } from '@/lib/adapter-brands';
 import { extractTextFromBlocks } from '@/lib/content-utils';
 import { api } from '@/lib/api';
@@ -12,15 +13,16 @@ export interface ReviewEntry {
   childSessionId: string;
   childAdapter: string;
   reviewTitle?: string;
+  prompt?: string;
+  permissionMode?: string;
 }
 
 interface ReviewPanelProps {
   reviews: ReviewEntry[];
   onEnd: (reviewId: string) => void;
   onMinimize: () => void;
-  initialPrompt?: string;
   cwd?: string;
-  onSessionCreated?: (childSessionId: string) => void;
+  onSessionCreated?: (reviewId: string, childSessionId: string) => void;
   readOnly?: boolean;
 }
 
@@ -30,23 +32,24 @@ export interface ReviewPanelHandle {
 
 // ===== ReviewTab (one per review, keeps useChat hook alive) =====
 
-const ReviewTab = React.memo(function ReviewTab({ review, cwd, initialPrompt, onSessionCreated, isActive, readOnly, sendRef }: {
+const ReviewTab = React.memo(function ReviewTab({ review, cwd, onSessionCreated, isActive, readOnly, sendRef }: {
   review: ReviewEntry;
   cwd?: string;
-  initialPrompt?: string;
-  onSessionCreated?: (sid: string) => void;
+  onSessionCreated?: (reviewId: string, sid: string) => void;
   isActive: boolean;
   readOnly?: boolean;
   sendRef?: React.MutableRefObject<Map<string, (text: string) => void>>;
 }) {
   const {
-    messages, streaming, liveStatus, toolStatuses,
+    messages, streaming, pendingResponse, liveStatus, toolStatuses,
     sendMessage, abort, sessionId: chatSessionId,
+    interactivePrompt, respondPrompt,
   } = useChat(
     review.childSessionId || undefined,
     cwd,
     review.childAdapter,
-    initialPrompt,
+    review.prompt,
+    review.permissionMode,
   );
 
   // Notify parent when child session is created
@@ -54,9 +57,9 @@ const ReviewTab = React.memo(function ReviewTab({ review, cwd, initialPrompt, on
   useEffect(() => {
     if (chatSessionId && !review.childSessionId && onSessionCreated && !sessionCreatedRef.current) {
       sessionCreatedRef.current = true;
-      onSessionCreated(chatSessionId);
+      onSessionCreated(review.reviewId, chatSessionId);
     }
-  }, [chatSessionId, review.childSessionId, onSessionCreated]);
+  }, [chatSessionId, review.childSessionId, onSessionCreated, review.reviewId]);
 
   // Register sendMessage in parent's ref map for sendToReview
   useEffect(() => {
@@ -89,6 +92,7 @@ const ReviewTab = React.memo(function ReviewTab({ review, cwd, initialPrompt, on
       <ChatBody
         messages={messages}
         streaming={streaming}
+        pendingResponse={pendingResponse}
         liveStatus={liveStatus}
         toolStatuses={toolStatuses || new Map()}
         onSend={sendMessage}
@@ -100,6 +104,12 @@ const ReviewTab = React.memo(function ReviewTab({ review, cwd, initialPrompt, on
         inputPlaceholder={`Reply to ${brand.displayName} review...`}
         className="flex-1"
       />
+      {interactivePrompt && (
+        <InteractivePromptOverlay
+          prompt={interactivePrompt}
+          onRespond={respondPrompt}
+        />
+      )}
     </div>
   );
 });
@@ -107,7 +117,7 @@ const ReviewTab = React.memo(function ReviewTab({ review, cwd, initialPrompt, on
 // ===== Main Panel =====
 
 export const FloatingReviewPanel = forwardRef<ReviewPanelHandle, ReviewPanelProps>(
-  function FloatingReviewPanel({ reviews, onEnd, onMinimize, initialPrompt, cwd, onSessionCreated, readOnly }, ref) {
+  function FloatingReviewPanel({ reviews, onEnd, onMinimize, cwd, onSessionCreated, readOnly }, ref) {
     const [activeTabIndex, setActiveTabIndex] = useState(Math.max(0, reviews.length - 1));
 
     // Keep activeTabIndex in bounds
@@ -162,7 +172,7 @@ export const FloatingReviewPanel = forwardRef<ReviewPanelHandle, ReviewPanelProp
                 const tabActive = i === activeTabIndex;
                 return (
                   <div
-                    key={r.reviewId || `tab-${i}`}
+                    key={r.reviewId}
                     className="flex items-center gap-0.5 text-xs whitespace-nowrap"
                     style={{
                       color: tabActive ? b.color : '#71717a',
@@ -229,11 +239,10 @@ export const FloatingReviewPanel = forwardRef<ReviewPanelHandle, ReviewPanelProp
         {/* Tabs — ALL rendered to keep hooks alive, only active one visible via CSS */}
         {reviews.map((r, i) => (
           <ReviewTab
-            key={r.reviewId || `pending-${i}`}
+            key={r.reviewId}
             review={r}
             cwd={cwd}
-            initialPrompt={i === reviews.length - 1 ? initialPrompt : undefined}
-            onSessionCreated={i === reviews.length - 1 ? onSessionCreated : undefined}
+            onSessionCreated={!r.childSessionId ? onSessionCreated : undefined}
             isActive={i === activeTabIndex}
             readOnly={readOnly}
             sendRef={sendRefs}

@@ -611,6 +611,28 @@ export class TmuxAdapter extends EventEmitter {
     }
   }
 
+  respondInteractivePrompt(requestId: string, selectedOption?: string, textValue?: string): void {
+    if (textValue != null) {
+      this.respondQuestion(requestId, textValue);
+    } else if (selectedOption != null) {
+      // Permission behaviors are named ('allow', 'allow_session', 'deny')
+      // Question options are numeric indices ('0', '1', '2')
+      const isPermission = ['allow', 'allow_session', 'deny'].includes(selectedOption);
+      if (isPermission) {
+        this.respondPermission(requestId, selectedOption as any);
+      } else {
+        // Numeric index — validate before consuming the pending entry
+        const index = parseInt(selectedOption);
+        if (isNaN(index)) return;
+        const pending = this._permissions.resolveQuestion(requestId);
+        if (!pending) return;
+        const session = this.sessions.get(pending.sessionId);
+        if (!session) return;
+        this._selectOption(session.windowId, index).catch(() => {});
+      }
+    }
+  }
+
   /**
    * Respond to the CLI's plan approval selector.
    * Options: 0=bypass (auto-accept edits), 1=manually approve, 2=text feedback
@@ -876,6 +898,23 @@ export class TmuxAdapter extends EventEmitter {
         if (attempt <= 3 || attempt % 5 === 0) {
           console.log(`[adapter] waitForReady #${attempt}: window=${windowId} prompt=${hasPrompt} lines=${lineCount}`);
         }
+        // Auto-accept bypass permissions confirmation prompt (Claude v2.1.85+).
+        // Detect by structure (numbered selection list) + context (bypass permissions).
+        const isSelectionPrompt = /❯\s+\d+\./.test(content);
+        const isBypassPrompt = /[Bb]ypass\s+[Pp]ermissions/.test(content);
+        if (isSelectionPrompt && isBypassPrompt) {
+          const acceptMatch = content.match(/(\d+)\.\s+Yes/);
+          const acceptOption = acceptMatch ? parseInt(acceptMatch[1]) : 2;
+          console.log(`[adapter] Bypass permissions prompt detected, selecting option ${acceptOption}`);
+          for (let i = 1; i < acceptOption; i++) {
+            await tmuxManager.sendControl(windowId, 'Down');
+            await new Promise<void>(r => setTimeout(r, 50));
+          }
+          await tmuxManager.sendControl(windowId, 'Enter');
+          await new Promise<void>(r => setTimeout(r, 500));
+          continue;
+        }
+
         if (hasPrompt && lineCount >= 3) {
           console.log(`[adapter] CLI ready for ${windowId} in ${Date.now() - start}ms`);
           await new Promise<void>(r => setTimeout(r, 300));

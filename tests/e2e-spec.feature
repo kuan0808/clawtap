@@ -4,7 +4,7 @@
 #
 # GLOBAL CONFIG:
 #   Server URL:    http://localhost:${PORT:-3456}
-#   Password:      value of CLAUDE_UI_PASSWORD env var
+#   Password:      value of CLAWTAP_PASSWORD env var
 #   Browser:       agent-browser with mobile viewport (e.g. "iPhone 14")
 #
 # STEP DEFINITIONS:
@@ -1205,7 +1205,7 @@ Feature: Desktop ↔ Mobile — Session Discovery
 
   Scenario: Second terminal detects running server (A6)
     Given the server is already running (started by first `codetap`)
-    When I run `codetap` in a new terminal WITHOUT CLAUDE_UI_PASSWORD set
+    When I run `codetap` in a new terminal WITHOUT CLAWTAP_PASSWORD set
     Then the CLI should detect the running server via health check
     And it should create a new tmux window with Claude Code
     And no password prompt should appear

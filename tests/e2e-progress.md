@@ -28,7 +28,7 @@
 
 - Server: https://localhost:3456 (HTTPS mode)
 - Browser: agent-browser with iPhone 14 viewport
-- Password: value of CLAUDE_UI_PASSWORD env var
+- Password: value of CLAWTAP_PASSWORD env var
 
 ---
 

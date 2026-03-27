@@ -38,11 +38,13 @@ function persistView(view: View) {
 
 function navigateTo(view: View) {
   persistView(view);
-  const url = view.name === 'chat' && view.sessionId
-    ? `/?view=chat&session=${view.sessionId}`
-    : view.name === 'settings'
-      ? '/?view=settings'
-      : '/';
+  let url = '/';
+  if (view.name === 'chat' && view.sessionId) {
+    url = `/?view=chat&session=${view.sessionId}`;
+    if (view.adapter) url += `&adapter=${view.adapter}`;
+  } else if (view.name === 'settings') {
+    url = '/?view=settings';
+  }
   window.history.pushState({ view }, '', url);
 }
 
@@ -208,7 +210,8 @@ export function App() {
     const action = params.get('action');
     if (sessionId) {
       urlParamsHandled.current = true;
-      openChat(sessionId);
+      const adapter = params.get('adapter');
+      openChat(sessionId, undefined, adapter || undefined);
       window.history.replaceState({}, '', '/');
     } else if (action === 'newchat') {
       urlParamsHandled.current = true;

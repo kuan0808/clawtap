@@ -5,6 +5,7 @@ import { WS } from '../lib/ws-types';
 import { api } from '../lib/api';
 import { patchAdapterPrefs, loadAdapterPrefs } from '../lib/adapter-prefs';
 import { stripMarker } from '@/lib/content-utils';
+import { parseAskQuestionInput } from '@/lib/ask-question-utils';
 
 export type ChatMessage = {
   id?: string;
@@ -17,6 +18,17 @@ export type PermissionRequest = {
   toolName: string;
   input: any;
   decisionReason?: string;
+};
+
+export type InteractivePrompt = {
+  requestId: string;
+  promptType: string;
+  title: string;
+  description: string;
+  toolName?: string;
+  toolInput?: any;
+  options?: { value: string; label: string }[];
+  textInput?: { placeholder?: string };
 };
 
 export type ToolStatus = {
@@ -91,9 +103,11 @@ export interface ReviewInfo {
   childAdapter: string;
   anchorMessageId?: string;
   reviewTitle?: string;
+  prompt?: string;
+  permissionMode?: string;
 }
 
-export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?: string, initialPrompt?: string) {
+export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?: string, initialPrompt?: string, initialPermissionMode?: string) {
   // --- State ---
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState<string>('');
@@ -108,23 +122,23 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
   const [pendingResponse, setPendingResponse] = useState(false);
   const [wsStatus, setWsStatus] = useState<WsStatus>('disconnected');
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId || null);
-  const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
+  const [interactivePrompt, setInteractivePrompt] = useState<InteractivePrompt | null>(null);
   // True when the most recent turn was interrupted — used for input placeholder
   const [interrupted, setInterrupted] = useState(false);
-  // Resolve adapter + prefs once, share across state initializers
-  const resolvedAdapter = initialAdapter || localStorage.getItem(STORAGE.ADAPTER) || 'claude';
-  const initialPrefs = loadAdapterPrefs(resolvedAdapter);
+  // If adapter is known (from prop or URL), use immediately. Otherwise null → wait for server.
+  const knownAdapter = initialAdapter || null;
+  const initialPrefs = knownAdapter ? loadAdapterPrefs(knownAdapter) : null;
 
-  const [model, setModel] = useState<string>(initialPrefs.model || '');
-  const [permissionMode, setPermissionMode] = useState<string>(initialPrefs.permissionMode || 'default');
-  const [effort, setEffort] = useState<string>(initialPrefs.effort || 'high');
+  const [model, setModel] = useState<string>(initialPrefs?.model || '');
+  const [permissionMode, setPermissionMode] = useState<string>(initialPermissionMode || initialPrefs?.permissionMode || 'default');
+  const [effort, setEffort] = useState<string>(initialPrefs?.effort || 'high');
   const [sessionStatus, setSessionStatus] = useState<{
     contextPercent: number | null;
     model: string | null;
     cost: number | null;
   } | null>(null);
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
-  const [selectedAdapter, setSelectedAdapter] = useState<string>(resolvedAdapter);
+  const [selectedAdapter, setSelectedAdapter] = useState<string | null>(knownAdapter);
   const [adapterConfig, setAdapterConfig] = useState<{
     models: { value: string; label: string; contextWindow: number }[];
     permissionModes: { value: string; label: string }[];
@@ -146,7 +160,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
   const wsRef = useRef<WsClient | null>(null);
   const actualSendRef = useRef<(text: string) => void>(() => {});
   const clientIdRef = useRef<string | null>(null);
-  const selectedAdapterRef = useRef<string>(selectedAdapter);
+  const selectedAdapterRef = useRef<string | null>(selectedAdapter);
   selectedAdapterRef.current = selectedAdapter;
 
   streamingRef.current = streaming;
@@ -168,7 +182,20 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
     switch (msg.type) {
       case WS.SESSION_CREATED:
         setSessionId(msg.sessionId);
-        if (msg.permissionMode) setPermissionMode(msg.permissionMode);
+        if (msg.adapter) {
+          setSelectedAdapter(msg.adapter);
+          const prefs = loadAdapterPrefs(msg.adapter);
+          if (!knownAdapter) {
+            // First time learning adapter — initialize prefs
+            setModel(prefs.model || '');
+            setPermissionMode(msg.permissionMode || prefs.permissionMode || 'default');
+            setEffort(prefs.effort || 'high');
+          } else {
+            if (msg.permissionMode) setPermissionMode(msg.permissionMode);
+          }
+        } else {
+          if (msg.permissionMode) setPermissionMode(msg.permissionMode);
+        }
         break;
 
       case WS.CLIENT_ID:
@@ -221,11 +248,11 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
           return next;
         });
         // AskUserQuestion completed — dismiss overlay on all clients
-        // Guard: only dismiss if the current overlay IS an AskUserQuestion
-        // (a new PermissionRequest may have arrived between answer and TOOL_DONE)
+        // Guard: only dismiss if the current overlay IS a question type
+        // (a new prompt may have arrived between answer and TOOL_DONE)
         if (msg.toolName === 'AskUserQuestion') {
-          setPermissionRequest((prev) =>
-            prev?.toolName === 'AskUserQuestion' ? null : prev
+          setInteractivePrompt((prev) =>
+            prev?.promptType === 'question' ? null : prev
           );
         }
         break;
@@ -285,7 +312,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         setPendingResponse(false);
         setStreamingText('');
         setThinkingStatus(null);
-        setPermissionRequest(null);
+        setInteractivePrompt(null);
         // Mark remaining running tools: if user interrupted → 'interrupted', otherwise → 'success'
         setToolStatuses(markToolsAs(interruptedRef.current ? 'interrupted' : 'success'));
         streamingRef.current = false;
@@ -293,8 +320,11 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         break;
 
       case WS.REVIEW_STARTED:
+        console.log(`[WS.REVIEW_STARTED] reviewId=${msg.reviewId?.slice(0,8)} childSid=${msg.childSessionId?.slice(0,8)} adapter=${msg.childAdapter}`);
         setActiveReviews(prev => {
-          if (prev.some(r => r.reviewId === msg.reviewId)) return prev;
+          const isDup = prev.some(r => r.reviewId === msg.reviewId);
+          console.log(`[WS.REVIEW_STARTED] dedup check: ${isDup ? 'DUPLICATE, skipping' : 'NEW, adding'}`);
+          if (isDup) return prev;
           return [...prev, {
             reviewId: msg.reviewId,
             childSessionId: msg.childSessionId,
@@ -311,18 +341,59 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         setActiveReviews(prev => prev.filter(r => r.reviewId !== msg.reviewId));
         break;
 
-      // Hook: permission request
-      case WS.PERMISSION_REQUEST:
-        setPermissionRequest({
+      // Unified interactive prompt (from Gemini/Codex pane monitors or session-manager conversion)
+      case WS.INTERACTIVE_PROMPT:
+        setInteractivePrompt({
           requestId: msg.requestId,
+          promptType: msg.promptType,
+          title: msg.title || '',
+          description: msg.description || '',
           toolName: msg.toolName,
-          input: msg.input,
+          toolInput: msg.toolInput,
+          options: msg.options,
+          textInput: msg.textInput,
         });
         break;
 
-      // Another client answered the permission request — dismiss overlay
+      // Another client answered the prompt — dismiss overlay
+      case WS.PROMPT_DISMISSED:
+        setInteractivePrompt(prev =>
+          prev?.requestId === msg.requestId ? null : prev
+        );
+        break;
+
+      // Legacy hook: permission request — convert to InteractivePrompt
+      case WS.PERMISSION_REQUEST: {
+        const isAsk = msg.toolName === 'AskUserQuestion';
+        if (isAsk) {
+          const parsed = parseAskQuestionInput(msg.input);
+          setInteractivePrompt({
+            requestId: msg.requestId,
+            promptType: 'question',
+            title: parsed.header || 'Question',
+            description: parsed.question,
+            toolName: msg.toolName,
+            toolInput: msg.input,
+            options: parsed.options,
+            textInput: parsed.options ? undefined : { placeholder: 'Enter your response...' },
+          });
+        } else {
+          setInteractivePrompt({
+            requestId: msg.requestId,
+            promptType: 'permission',
+            title: 'Permission Request',
+            description: `${msg.toolName} wants to execute`,
+            toolName: msg.toolName,
+            toolInput: msg.input,
+            options: [{ value: 'allow', label: 'Allow' }, { value: 'allow_session', label: 'Allow All' }, { value: 'deny', label: 'Deny' }],
+          });
+        }
+        break;
+      }
+
+      // Legacy: another client answered the permission request — dismiss overlay
       case WS.PERMISSION_DISMISSED:
-        setPermissionRequest((prev) =>
+        setInteractivePrompt(prev =>
           prev?.requestId === msg.requestId ? null : prev
         );
         break;
@@ -358,9 +429,9 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
 
       case WS.MODE_UPDATED:
         setPermissionMode(msg.mode);
-        patchAdapterPrefs(selectedAdapterRef.current, { permissionMode: msg.mode });
+        if (selectedAdapterRef.current) patchAdapterPrefs(selectedAdapterRef.current, { permissionMode: msg.mode });
         if (msg.mode === 'bypassPermissions' || msg.mode === 'plan') {
-          setPermissionRequest(null);
+          setInteractivePrompt(null);
         }
         break;
 
@@ -403,7 +474,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
     const client = new WsClient(token, handleWsMessage, setWsStatus);
     wsRef.current = client;
     if (initialSessionId) {
-      client.setActiveSession(initialSessionId, selectedAdapter);
+      client.setActiveSession(initialSessionId, selectedAdapter ?? undefined);
     }
     client.connect();
     return () => {
@@ -425,17 +496,18 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
   // Keep WsClient's activeAdapter in sync so reconnect sends correct adapter hint
   useEffect(() => {
     if (wsRef.current && sessionId) {
-      wsRef.current.setActiveSession(sessionId, selectedAdapter);
+      wsRef.current.setActiveSession(sessionId, selectedAdapter ?? undefined);
     }
   }, [sessionId, selectedAdapter]);
 
   // --- Fetch adapter config (models, permission modes) ---
   useEffect(() => {
-    api.adapterConfig(selectedAdapter).then(setAdapterConfig).catch(console.error);
+    if (selectedAdapter) api.adapterConfig(selectedAdapter).then(setAdapterConfig).catch(console.error);
   }, [selectedAdapter]);
 
   // --- Send Message ---
   const actualSend = useCallback((text: string) => {
+    if (!selectedAdapter) return;
     if (!text.trim() || !wsRef.current) return;
     streamingRef.current = true;
     setMessages(prev => [
@@ -485,7 +557,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
       behavior,
       message,
     });
-    setPermissionRequest(null);
+    setInteractivePrompt(null);
   }, []);
 
   const respondAsk = useCallback((requestId: string, response: string) => {
@@ -494,7 +566,17 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
       requestId,
       response,
     });
-    setPermissionRequest(null);
+    setInteractivePrompt(null);
+  }, []);
+
+  const respondPrompt = useCallback((requestId: string, selectedOption?: string, textValue?: string) => {
+    wsRef.current?.send({
+      type: WS.PROMPT_RESPONSE,
+      requestId,
+      selectedOption,
+      textValue,
+    });
+    setInteractivePrompt(null);
   }, []);
 
   // --- Plan Response ---
@@ -519,7 +601,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
     setPendingResponse(false);
     setStreamingText('');
     setThinkingStatus(null);
-    setPermissionRequest(null);
+    setInteractivePrompt(null);
     setInterrupted(true); // Immediately mark as interrupted for tool card fallback
     setToolStatuses(markToolsAs('interrupted'));
   }, [sessionId]);
@@ -527,7 +609,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
   // --- Settings ---
   const updateModel = useCallback((m: string) => {
     setModel(m);
-    patchAdapterPrefs(selectedAdapter, { model: m });
+    if (selectedAdapter) patchAdapterPrefs(selectedAdapter, { model: m });
     if (sessionId) {
       wsRef.current?.send({ type: WS.SET_MODEL, sessionId, model: m });
     }
@@ -544,7 +626,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
 
   const updatePermissionMode = useCallback((m: string) => {
     setPermissionMode(m);
-    patchAdapterPrefs(selectedAdapter, { permissionMode: m });
+    if (selectedAdapter) patchAdapterPrefs(selectedAdapter, { permissionMode: m });
     if (sessionId) {
       wsRef.current?.send({ type: WS.SET_PERMISSION_MODE, sessionId, mode: m });
     }
@@ -559,11 +641,11 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
   return {
     messages, toolStatuses, streaming, pendingResponse, wsStatus, sessionId, liveStatus,
     interrupted, sessionStatus, adapterConfig, selectedAdapter,
-    permissionRequest, model, permissionMode, effort,
+    interactivePrompt, model, permissionMode, effort,
     queuedMessage, clearQueuedMessage,
     activeReviews, setActiveReviews, activeReviewPanel, setActiveReviewPanel,
     historyReview, setHistoryReview,
-    sendMessage, respondPermission, respondAsk, respondPlan, abort,
+    sendMessage, respondPermission, respondAsk, respondPrompt, respondPlan, abort,
     updateModel, updatePermissionMode, updateAdapter,
   };
 }

@@ -146,7 +146,7 @@ export function ChatBody({
           : isLastAssistant && interrupted ? 'interrupted'
           : 'success';
         elements.push(
-          <ToolCallCard key={tool.id} toolName={tool.name} input={tool.input} status={status?.status || fallbackStatus} result={status?.result} />,
+          <ToolCallCard key={tool.id} toolName={tool.name} input={tool.input} status={status?.status || fallbackStatus} result={status?.result || tool._result} />,
         );
       }
     }

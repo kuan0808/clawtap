@@ -124,10 +124,10 @@ export const api = {
   pushPending: () =>
     request<Record<string, number>>('/api/push/pending'),
 
-  registerReview: (parentCliSessionId: string, childSessionId: string, targetAdapter: string, anchorMessageId: string, prompt: string, title: string) =>
+  registerReview: (params: { reviewId: string; parentCliSessionId: string; childSessionId: string; targetAdapter: string; anchorMessageId: string; prompt: string; title: string }) =>
     request<{ reviewId: string }>('/api/reviews/register', {
       method: 'POST',
-      body: JSON.stringify({ parentCliSessionId, childSessionId, targetAdapter, anchorMessageId, prompt, title }),
+      body: JSON.stringify(params),
     }),
 
   endReview: (reviewId: string, endAnchorMessageId?: string) =>

@@ -30,6 +30,10 @@ export const WS = {
   CLIENT_ID: 'client-id',
   PENDING_NOTIFICATIONS: 'pending-notifications',
   ERROR: 'error',
+  // Interactive Prompts (unified permission/question/plan overlay)
+  INTERACTIVE_PROMPT: 'interactive-prompt',
+  PROMPT_RESPONSE: 'prompt-response',
+  PROMPT_DISMISSED: 'prompt-dismissed',
   // Cross-AI Review
   REVIEW_STARTED: 'review-started',
   REVIEW_ENDED: 'review-ended',

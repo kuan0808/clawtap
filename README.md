@@ -35,7 +35,7 @@ Real-time sync. Cross-AI review. Push notifications.
 ```bash
 npm install -g @kuannnn/clawtap
 
-export CLAUDE_UI_PASSWORD=your-password
+export CLAWTAP_PASSWORD=your-password
 clawtap
 ```
 
@@ -192,7 +192,7 @@ The app icon badge shows how many sessions have unread notifications. Entering a
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUDE_UI_PASSWORD` | *(required)* | Login password |
+| `CLAWTAP_PASSWORD` | *(required)* | Login password |
 | `PORT` | `3456` | Server port |
 
 HTTPS is enabled automatically when `~/.clawtap/cert.pem` and `~/.clawtap/key.pem` exist. Otherwise the server runs on HTTP. Tailscale Serve is the easiest path to HTTPS.

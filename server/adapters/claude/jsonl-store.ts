@@ -139,6 +139,7 @@ export async function getMessages(sessionId: string, dir?: string): Promise<GetM
     try {
       const messages: unknown[] = [];
       const subToolMap: Map<string, SubToolBlock[]> = new Map(); // parentToolUseId → sub-tool blocks
+      const toolUseIndex: Map<string, ContentBlock> = new Map(); // tool_use id → content block
       const stream = createReadStream(filePath);
       const rl = createInterface({ input: stream, crlfDelay: Infinity });
       try {
@@ -162,9 +163,24 @@ export async function getMessages(sessionId: string, dir?: string): Promise<GetM
             if (entry.type === 'assistant') {
               if (isNoResponseMessage(text)) continue;
               messages.push(entry.message);
+              // Index tool_use blocks for O(1) result attachment
+              if (Array.isArray(content)) {
+                for (const block of content as ContentBlock[]) {
+                  if (block.type === 'tool_use' && block.id) toolUseIndex.set(block.id, block);
+                }
+              }
             } else if (entry.type === 'user') {
-              // Skip messages containing tool results (not needed for display)
-              if (Array.isArray(content) && content.some((b: ContentBlock) => b.type === 'tool_result')) continue;
+              // Attach tool results to their matching tool_use blocks
+              const toolResults = Array.isArray(content)
+                ? (content as ContentBlock[]).filter((b: ContentBlock) => b.type === 'tool_result' && b.tool_use_id)
+                : [];
+              if (toolResults.length > 0) {
+                for (const block of toolResults) {
+                  const match = toolUseIndex.get(block.tool_use_id as string);
+                  if (match) match._result = block;
+                }
+                continue;
+              }
               // Skip system/CLI messages (empty text, system patterns)
               if (isSystemMessage(text, content)) continue;
               // Convert "Implement the following plan:" messages to plan type

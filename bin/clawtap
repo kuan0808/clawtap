@@ -217,20 +217,20 @@ ensure_server() {
   fi
 
   # Password is required
-  if [ -z "$CLAUDE_UI_PASSWORD" ]; then
+  if [ -z "$CLAWTAP_PASSWORD" ]; then
     echo "ClawTap server not running."
     echo ""
     echo "Set a password and try again:"
-    echo "  export CLAUDE_UI_PASSWORD=your-password"
+    echo "  export CLAWTAP_PASSWORD=your-password"
     echo "  clawtap"
     echo ""
     echo "Or start the server separately:"
-    echo "  CLAUDE_UI_PASSWORD=your-password npm start"
+    echo "  CLAWTAP_PASSWORD=your-password npm start"
     exit 1
   fi
 
   echo "Starting ClawTap server on port $PORT..."
-  CLAUDE_UI_PASSWORD="$CLAUDE_UI_PASSWORD" PORT="$PORT" \
+  CLAWTAP_PASSWORD="$CLAWTAP_PASSWORD" PORT="$PORT" \
     nohup npx tsx "$SERVER_DIR/server/index.ts" >"$HOME/.clawtap/server.log" 2>&1 &
   SERVER_PID=$!
 
@@ -252,7 +252,7 @@ ensure_server
 # Authenticate with the ClawTap server API
 get_auth_token() {
   local BODY
-  BODY=$(printf '%s' "$CLAUDE_UI_PASSWORD" | python3 -c 'import sys,json; print(json.dumps({"password": sys.stdin.read()}))' 2>/dev/null)
+  BODY=$(printf '%s' "$CLAWTAP_PASSWORD" | python3 -c 'import sys,json; print(json.dumps({"password": sys.stdin.read()}))' 2>/dev/null)
   curl -sk -X POST "${PROTOCOL}://localhost:${PORT}/api/auth/login" \
     -H "Content-Type: application/json" \
     -d "$BODY" 2>/dev/null | \

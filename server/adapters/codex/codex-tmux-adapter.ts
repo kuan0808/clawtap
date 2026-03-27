@@ -19,6 +19,7 @@ import type { ReconnectState } from '../../types/adapter.js';
 import type { ActiveSessionInfo } from '../interface.js';
 import { isLargeContent } from '../interface.js';
 import { PermissionManager } from '../../permission-manager.js';
+import { findActiveSession } from '../shared/find-active-session.js';
 import { readFile } from 'fs/promises';
 
 // ---------------------------------------------------------------------------
@@ -149,7 +150,7 @@ export class CodexTmuxAdapter extends EventEmitter {
 
     this._startMonitor(finalId, windowId);
 
-    return { sessionId: finalId };
+    return { sessionId: finalId, pendingRekey: finalId === tempKey };
   }
 
   async resumeSession(sessionId: string, cwd: string, options: QueryOptions = {}): Promise<{ sessionId: string }> {
@@ -604,6 +605,23 @@ export class CodexTmuxAdapter extends EventEmitter {
     if (!session) return;
 
     await tmuxManager.sendKeys(session.windowId, answer, true);
+  }
+
+  respondInteractivePrompt(requestId: string, selectedOption?: string, textValue?: string): void {
+    const pending = this._permissions.resolvePermission(requestId)
+      || this._permissions.resolveQuestion(requestId);
+    const sessionId = pending?.sessionId || findActiveSession(this.sessions);
+    if (!sessionId) return;
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    if (selectedOption != null) {
+      // Codex uses single-key shortcuts (y, a, p, d, n)
+      tmuxManager.sendKeys(session.windowId, selectedOption, false).catch(() => {});
+    }
+    if (textValue != null) {
+      tmuxManager.sendKeys(session.windowId, textValue, true).catch(() => {});
+    }
   }
 
   /** Release all pending requests for a session (e.g., when Mobile disconnects). */

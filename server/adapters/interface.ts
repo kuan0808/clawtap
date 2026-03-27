@@ -92,7 +92,7 @@ export class IAdapter extends EventEmitter {
 
   // --- Session Lifecycle ---
 
-  async startSession(cwd: string, options?: QueryOptions): Promise<{ sessionId: string }> { throw new Error('Not implemented: startSession'); }
+  async startSession(cwd: string, options?: QueryOptions): Promise<{ sessionId: string; pendingRekey?: boolean }> { throw new Error('Not implemented: startSession'); }
   async resumeSession(sessionId: string, cwd: string, options?: QueryOptions): Promise<{ sessionId: string }> { throw new Error('Not implemented: resumeSession'); }
   async attachSession(sessionId: string, cwd: string, options?: QueryOptions): Promise<{ sessionId: string }> { throw new Error('Not implemented: attachSession'); }
   async destroySession(sessionId: string): Promise<void> { throw new Error('Not implemented: destroySession'); }
@@ -155,10 +155,14 @@ export class IAdapter extends EventEmitter {
 
   // --- Hooks ---
 
+  /** Update the port used by hooks (called when port fallback changes the port). */
+  setHookPort(port: number | string): void {}
   /** Install adapter-specific hooks (e.g., write to CLI settings). No server needed. */
   installHooks(): void {}
   /** Remove adapter-specific hooks. No server needed. */
   uninstallHooks(): void {}
+  /** Respond to an interactive prompt (permission, question, plan, etc). */
+  respondInteractivePrompt(requestId: string, selectedOption?: string, textValue?: string): void {}
 
   // --- Lifecycle ---
 

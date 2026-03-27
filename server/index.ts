@@ -12,7 +12,7 @@ import {
   authMiddleware,
 } from './auth.js';
 import './adapters/init.js';
-import { initAll, listAvailable, get as getAdapter, getAll as getAllAdapters, cleanupAll, DEFAULT_ADAPTER } from './adapters/registry.js';
+import { initAll, installAllHooks, listAvailable, get as getAdapter, getAll as getAllAdapters, cleanupAll, DEFAULT_ADAPTER } from './adapters/registry.js';
 import { initPush, getVapidPublicKey, saveSubscription, removeSubscription, getPendingSessions } from './push.js';
 import {
   setupSessionManager,
@@ -25,7 +25,7 @@ import {
 import { WebSocketTransport } from './transport/websocket-transport.js';
 import { loadConfig } from './config.js';
 import type { AppConfig } from './config.js';
-import { initDB, closeDB, sessionReviews, savedInstructions } from './db.js';
+import { initDB, closeDB, sessionReviews, sessionAdapters, savedInstructions } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -99,6 +99,10 @@ async function start(): Promise<void> {
         )
       );
       const allSessions = results.flat();
+      // Persist session→adapter mapping so server knows which adapter owns each session
+      for (const s of allSessions) {
+        if (s.sessionId && s.adapter) sessionAdapters.set(s.sessionId, s.adapter);
+      }
       allSessions.sort((a, b) => {
         const aTime = typeof a.lastModified === 'number' ? a.lastModified : new Date(a.lastModified || 0).getTime();
         const bTime = typeof b.lastModified === 'number' ? b.lastModified : new Date(b.lastModified || 0).getTime();
@@ -251,9 +255,9 @@ async function start(): Promise<void> {
   // Register a review after the child session is already created via QUERY
   app.post('/api/reviews/register', authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { parentCliSessionId, childSessionId, targetAdapter, anchorMessageId, prompt, title } = req.body;
-      if (!parentCliSessionId || !childSessionId) {
-        return res.status(400).json({ error: 'parentCliSessionId and childSessionId required' });
+      const { reviewId, parentCliSessionId, childSessionId, targetAdapter, anchorMessageId, prompt, title } = req.body;
+      if (!reviewId || !parentCliSessionId || !childSessionId) {
+        return res.status(400).json({ error: 'reviewId, parentCliSessionId and childSessionId required' });
       }
 
       // Find which adapter owns the parent session
@@ -262,7 +266,6 @@ async function start(): Promise<void> {
         if (a.getSession(parentCliSessionId)) { parentAdapterName = name; break; }
       }
 
-      const reviewId = randomUUID();
       sessionReviews.create(reviewId, parentCliSessionId, childSessionId, targetAdapter, parentAdapterName, anchorMessageId, prompt, title);
 
       // Ensure adapter mapping exists for the child session
@@ -436,20 +439,48 @@ async function start(): Promise<void> {
     }
   });
 
-  // Initialize all adapters (registers hook routes, configures CLI hooks)
+  // Register adapter routes (before listen — routes don't depend on port)
   initAll(app);
 
   setupSessionManager();
 
-  // --- Initialize and Listen ---
+  // --- Find available port and Listen ---
 
   await initAuth(config);
   initPush(config);
-  writeFileSync(config.paths.pid, String(process.pid));
+
   const protocol = config.https ? 'https' : 'http';
-  server.listen(config.port, '0.0.0.0', () => {
-    console.log(`ClawTap running on ${protocol}://0.0.0.0:${config.port}${config.https ? ' (HTTPS)' : ''}`);
+  const actualPort = await new Promise<number>((resolve, reject) => {
+    const maxRetries = 10;
+    let attempt = 0;
+    function tryListen(port: number) {
+      const onError = (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE' && attempt < maxRetries) {
+          attempt++;
+          const nextPort = port + 1;
+          console.log(`Port ${port} in use, trying ${nextPort}...`);
+          server.close(() => tryListen(nextPort));
+        } else {
+          reject(err);
+        }
+      };
+      server.once('error', onError);
+      server.listen(port, '0.0.0.0', () => {
+        server.removeListener('error', onError);
+        resolve(port);
+      });
+    }
+    tryListen(config.port);
   });
+
+  // Update config with actual port (may differ if fallback occurred)
+  config.port = actualPort;
+
+  // Install hooks AFTER port is confirmed (hooks embed the port in CLI configs)
+  installAllHooks(actualPort);
+
+  writeFileSync(config.paths.pid, String(process.pid));
+  console.log(`ClawTap running on ${protocol}://0.0.0.0:${actualPort}${config.https ? ' (HTTPS)' : ''}`);
 
   // --- Graceful Shutdown ---
 

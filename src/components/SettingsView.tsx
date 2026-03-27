@@ -21,7 +21,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     api.adapters().then(setAdapters).catch(() => {});
-    fetch('/api/health')
+    fetch('/health')
       .then(r => r.json())
       .then((data: { version: string }) => setVersion(data.version))
       .catch(() => {});

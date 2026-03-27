@@ -19,6 +19,7 @@ import type { ReconnectState } from '../../types/adapter.js';
 import type { ActiveSessionInfo } from '../interface.js';
 import { isLargeContent } from '../interface.js';
 import { PermissionManager } from '../../permission-manager.js';
+import { findActiveSession } from '../shared/find-active-session.js';
 import { readFile } from 'fs/promises';
 
 // ---------------------------------------------------------------------------
@@ -116,12 +117,13 @@ export class GeminiTmuxAdapter extends EventEmitter {
 
   // === Session Lifecycle ===
 
-  async startSession(cwd: string, options: QueryOptions = {}): Promise<{ sessionId: string }> {
+  async startSession(cwd: string, options: QueryOptions = {}): Promise<{ sessionId: string; pendingRekey?: boolean }> {
     const mode = options.permissionMode || 'default';
     const parts = ['gemini', '--approval-mode', this._toCliApprovalMode(mode)];
     if (options.model) parts.push('-m', options.model);
 
     const tempName = `gemini-${Date.now()}`;
+    console.log(`[gemini-tmux] startSession: tempName=${tempName} cwd=${cwd} mode=${mode}`);
     const windowId = await tmuxManager.createWindow(tempName, cwd, parts.join(' '));
 
     // Register session BEFORE _waitForReady — SessionStart hook fires during
@@ -137,14 +139,16 @@ export class GeminiTmuxAdapter extends EventEmitter {
       const rekeyed = [...this.sessions.entries()].find(([, s]) => s.windowId === windowId)?.[0];
       if (rekeyed) {
         finalId = rekeyed;
+        console.log(`[gemini-tmux] startSession: rekeyed ${tempName} → ${rekeyed}`);
       } else {
         console.warn(`[gemini-tmux] Session ${tempName} vanished during startup (windowId=${windowId})`);
       }
     }
 
+    console.log(`[gemini-tmux] startSession: finalId=${finalId} pendingRekey=${finalId === tempName}`);
     this._startMonitor(finalId, windowId);
 
-    return { sessionId: finalId };
+    return { sessionId: finalId, pendingRekey: finalId === tempName };
   }
 
   async resumeSession(sessionId: string, cwd: string, options: QueryOptions = {}): Promise<{ sessionId: string }> {
@@ -581,6 +585,27 @@ export class GeminiTmuxAdapter extends EventEmitter {
     await tmuxManager.sendKeys(session.windowId, answer, true);
   }
 
+  respondInteractivePrompt(requestId: string, selectedOption?: string, textValue?: string): void {
+    const pending = this._permissions.resolvePermission(requestId)
+      || this._permissions.resolveQuestion(requestId);
+    // For pane-monitor-detected prompts, there may be no pending entry — find session from active sessions
+    const sessionId = pending?.sessionId || findActiveSession(this.sessions);
+    if (!sessionId) return;
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    if (selectedOption != null) {
+      const index = parseInt(selectedOption);
+      if (!isNaN(index)) {
+        // Gemini numbered options: navigate Down × index, then Enter
+        this._selectNumberedOption(session.windowId, index).catch(() => {});
+      }
+    }
+    if (textValue != null) {
+      tmuxManager.sendKeys(session.windowId, textValue, true).catch(() => {});
+    }
+  }
+
   /** Release all pending requests for a session */
   releaseAllPending(sessionId: string): void {
     this._permissions.dismissAll(sessionId);
@@ -596,6 +621,14 @@ export class GeminiTmuxAdapter extends EventEmitter {
         }
       }
     }
+  }
+
+  private async _selectNumberedOption(windowId: string, targetIndex: number): Promise<void> {
+    for (let i = 0; i < targetIndex; i++) {
+      await tmuxManager.sendControl(windowId, 'Down');
+      await new Promise<void>(r => setTimeout(r, 50));
+    }
+    await tmuxManager.sendControl(windowId, 'Enter');
   }
 
   // === Cleanup ===
@@ -662,7 +695,7 @@ export class GeminiTmuxAdapter extends EventEmitter {
    * Wait for Gemini CLI to be ready.
    * Polls tmux pane content until a prompt indicator appears.
    */
-  private async _waitForReady(windowId: string, timeoutMs: number = 30000): Promise<void> {
+  private async _waitForReady(windowId: string, timeoutMs: number = 60000): Promise<void> {
     const start = Date.now();
     let attempt = 0;
     while (Date.now() - start < timeoutMs) {
@@ -670,16 +703,68 @@ export class GeminiTmuxAdapter extends EventEmitter {
       try {
         const content = await tmuxManager.capturePane(windowId);
         const lines = content.split('\n');
-        // Gemini shows > or similar prompt indicator
-        const hasPrompt = lines.some(l => /^\s*[>❯]/.test(l));
-        const lineCount = lines.filter(l => l.trim()).length;
-        if (attempt <= 3 || attempt % 5 === 0) {
-          console.log(`[gemini-tmux] waitForReady #${attempt}: window=${windowId} prompt=${hasPrompt} lines=${lineCount}`);
-        }
-        if (hasPrompt && lineCount >= 2) {
+        // Gemini shows > (default), * (yolo), or ❯ as prompt indicator
+        const hasPrompt = lines.some(l => /^\s*[>*❯]/.test(l));
+
+        if (hasPrompt) {
           console.log(`[gemini-tmux] CLI ready for ${windowId} in ${Date.now() - start}ms`);
           await new Promise<void>(r => setTimeout(r, 300));
           return;
+        }
+
+        // Privacy Notice or Terms of Service popup — dismiss with Esc
+        if (!hasPrompt && (content.includes('Privacy Notice') ||
+            (content.includes('Terms of Service') && !content.includes('trust the files')))) {
+          console.log('[gemini-tmux] Privacy/ToS notice detected, dismissing');
+          await tmuxManager.sendControl(windowId, 'Escape');
+          await new Promise<void>(r => setTimeout(r, 500));
+          continue;
+        }
+
+        // Multi-folder trust dialog ("trust the following folders")
+        if (!hasPrompt && content.includes('trust the following folders')) {
+          console.log('[gemini-tmux] Multi-folder trust detected, accepting');
+          await tmuxManager.sendControl(windowId, 'Enter');
+          await new Promise<void>(r => setTimeout(r, 1000));
+          continue;
+        }
+
+        // IDE integration nudge — decline
+        if (!hasPrompt && content.includes('Do you want to connect') && content.includes('Gemini CLI')) {
+          console.log('[gemini-tmux] IDE nudge detected, declining');
+          await tmuxManager.sendControl(windowId, 'Down');
+          await new Promise<void>(r => setTimeout(r, 50));
+          await tmuxManager.sendControl(windowId, 'Enter');
+          await new Promise<void>(r => setTimeout(r, 500));
+          continue;
+        }
+
+        // Auto-accept folder trust prompt (Gemini asks on first use in a directory).
+        // Only runs when prompt is NOT yet visible.
+        if (content.includes('trust the files') && content.includes('Trust folder')) {
+          const parentMatch = content.match(/(\d+)\.\s+Trust parent folder/);
+          if (parentMatch) {
+            const targetOption = parseInt(parentMatch[1]);
+            console.log(`[gemini-tmux] Folder trust prompt detected, selecting option ${targetOption} (Trust parent folder)`);
+            for (let i = 1; i < targetOption; i++) {
+              await tmuxManager.sendControl(windowId, 'Down');
+              await new Promise<void>(r => setTimeout(r, 50));
+            }
+          } else {
+            console.log(`[gemini-tmux] Folder trust prompt detected, accepting default (Trust folder)`);
+          }
+          await tmuxManager.sendControl(windowId, 'Enter');
+          await new Promise<void>(r => setTimeout(r, 1000));
+          continue;
+        }
+
+        if (attempt <= 3 || attempt % 5 === 0) {
+          const lineCount = lines.filter(l => l.trim()).length;
+          console.log(`[gemini-tmux] waitForReady #${attempt}: window=${windowId} prompt=${hasPrompt} lines=${lineCount}`);
+          if (lineCount > 0) {
+            const nonEmpty = lines.filter(l => l.trim());
+            console.log(`[gemini-tmux] waitForReady content: first="${nonEmpty[0]?.substring(0, 60)}" last="${nonEmpty[nonEmpty.length - 1]?.substring(0, 60)}"`);
+          }
         }
       } catch (err) {
         console.log(`[gemini-tmux] waitForReady #${attempt}: ERROR ${(err as Error).message}`);

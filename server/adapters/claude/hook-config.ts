@@ -30,14 +30,11 @@ interface HookIdentifiers {
 interface ClaudeSettings {
   hooks?: Record<string, HookEntry[]>;
   statusLine?: { type: string; command: string };
-  _clawtapOriginalStatusLine?: string;
+  _clawtapOriginalStatusLine?: string;  // legacy, cleaned up on uninstall
   [key: string]: unknown;
 }
 
 export class ClaudeHookConfig {
-  /** Shared between install() wrapper construction and _extractOriginalFromWrapper() */
-  private static readonly WRAPPER_TAIL = `fi; printf '%s' "$input" | `;
-
   port: number | string;
   useHttps: boolean;
 
@@ -79,16 +76,14 @@ export class ClaudeHookConfig {
         existing.hooks[event] = [...filtered, ...configs];
       }
 
-      // Wrap statusLine to also POST to our server (non-blocking).
-      // - Has custom statusLine → wrap it (POST + original coexist)
+      // Insert our statusLine script into the pipe chain (if not already there).
+      // Our script is a passthrough: reads stdin, POSTs to server (background), outputs stdin.
+      // - Has custom statusLine → pipe through our script first
       // - No custom statusLine  → don't touch it, preserve Claude Code built-in
+      const wrapperScript = this._ensureStatusLineScript(statuslineUrl);
       const existingCmd = existing.statusLine?.command || '';
-      if (existingCmd && !existingCmd.includes(`:${port}/api/hooks/claude/statusline`)) {
-        existing._clawtapOriginalStatusLine = existingCmd;
-        const portCheck = this._portCheckCmd();
-        const curlK = this.useHttps ? ' -k' : '';
-        const wrapperCmd = `input=$(cat); if ${portCheck}; then printf '%s' "$input" | curl -sf${curlK} -X POST -H 'Content-Type:application/json' -d @- ${statuslineUrl} &>/dev/null & ${ClaudeHookConfig.WRAPPER_TAIL}${existingCmd}`;
-        existing.statusLine = { type: 'command', command: wrapperCmd };
+      if (existingCmd && !existingCmd.includes(wrapperScript)) {
+        existing.statusLine = { type: 'command', command: `${wrapperScript} | ${existingCmd}` };
         console.log(`[hooks] Wrapped statusLine to POST to ${statuslineUrl}`);
       }
 
@@ -129,19 +124,23 @@ export class ClaudeHookConfig {
         if (Object.keys(existing.hooks).length === 0) delete existing.hooks;
       }
 
-      // --- Restore statusLine (independent of hooks) ---
-      // Restore original statusLine: try extraction from wrapper first (most reliable),
-      // then fall back to backup field, then delete only if truly no original existed.
-      if (existing.statusLine?.command?.includes(portTag)) {
-        const original = this._extractOriginalFromWrapper(existing.statusLine.command);
-        if (original) {
-          existing.statusLine = { type: 'command', command: original };
-        } else if (existing._clawtapOriginalStatusLine) {
-          existing.statusLine = { type: 'command', command: existing._clawtapOriginalStatusLine };
+      // --- Restore statusLine: remove our script from the pipe chain ---
+      const wrapperScript = this._statusLineScriptPath();
+      if (existing.statusLine?.command?.includes(wrapperScript)) {
+        // Remove our script + pipe from the command string
+        const restored = existing.statusLine.command
+          .replace(`${wrapperScript} | `, '')
+          .replace(wrapperScript, '')
+          .replace(/\s*\|\s*$/, '')  // trailing pipe
+          .replace(/^\s*\|\s*/, '')  // leading pipe
+          .trim();
+        if (restored) {
+          existing.statusLine = { type: 'command', command: restored };
         } else {
           delete existing.statusLine;
         }
       }
+      // Clean up legacy backup field from old versions
       delete existing._clawtapOriginalStatusLine;
 
       writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
@@ -160,14 +159,30 @@ export class ClaudeHookConfig {
     };
   }
 
-  /** Extract the original statusLine command from our wrapper using WRAPPER_TAIL. */
-  private _extractOriginalFromWrapper(cmd: string): string | null {
-    const tail = ClaudeHookConfig.WRAPPER_TAIL;
-    const idx = cmd.lastIndexOf(tail);
-    if (idx < 0) return null;
-    const original = cmd.substring(idx + tail.length).trim();
-    if (!original || original.includes('/api/hooks/claude')) return null;
-    return original;
+  /** Path to our statusLine wrapper script */
+  private _statusLineScriptPath(): string {
+    return join(homedir(), '.clawtap', 'hooks', 'claude-statusline.sh');
+  }
+
+  /** Create or update the statusLine wrapper script */
+  private _ensureStatusLineScript(statuslineUrl: string): string {
+    const scriptPath = this._statusLineScriptPath();
+    const scriptDir = join(homedir(), '.clawtap', 'hooks');
+    mkdirSync(scriptDir, { recursive: true });
+
+    const portCheck = this._portCheckCmd();
+    const curlInsecure = this.useHttps ? ' -k' : '';
+    const script = `#!/bin/bash
+input=$(cat)
+# POST to ClawTap server (non-blocking, skip if server not running)
+if ${portCheck}; then
+  printf '%s' "$input" | curl -sf${curlInsecure} --connect-timeout 2 --max-time 5 -X POST -H 'Content-Type:application/json' -d @- ${statuslineUrl} &>/dev/null &
+fi
+# Pass through to stdout
+printf '%s' "$input"
+`;
+    writeFileSync(scriptPath, script, { mode: 0o755 });
+    return scriptPath;
   }
 
   private _isOurHookEntry(entry: HookEntry, portTag: string): boolean {

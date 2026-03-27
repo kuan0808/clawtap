@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { extractUserText } from './message-utils.js';
+import { stripMarker } from '../shared/content-utils.js';
 import type { DirectoryEntry } from '../interface.js';
 import type { SessionInfo } from '../../types/adapter.js';
 
@@ -123,7 +124,7 @@ export function getSessions(dir?: string, limit?: number): SessionInfo[] {
             if (m.type === 'user' && m.content != null) {
               const text = extractUserText(m.content);
               if (text.trim()) {
-                firstPrompt = text.slice(0, 200);
+                firstPrompt = stripMarker(text).slice(0, 200);
                 break;
               }
             }
@@ -223,7 +224,6 @@ export function getSessionMessages(
     const projectName = getProjectName(dir);
     if (projectName) {
       const chatsDir = join(GEMINI_TMP_DIR, projectName, 'chats');
-      // Try exact match first, then scan
       try {
         const files = readdirSync(chatsDir);
         for (const file of files) {
@@ -245,6 +245,8 @@ export function getSessionMessages(
         // chats dir not readable
       }
     }
+    // Fallback: project name mapping failed — scan all projects
+    if (!filePath) filePath = findSessionFile(sessionId);
   } else {
     filePath = findSessionFile(sessionId);
   }

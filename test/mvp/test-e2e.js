@@ -62,7 +62,7 @@ async function main() {
   console.log('Starting server...');
   const serverProcess = spawn('node', ['server/index.js'], {
     cwd: PROJECT_DIR,
-    env: { ...process.env, PORT: String(PORT), CLAUDE_UI_PASSWORD: PASSWORD },
+    env: { ...process.env, PORT: String(PORT), CLAWTAP_PASSWORD: PASSWORD },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 

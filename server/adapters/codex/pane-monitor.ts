@@ -13,6 +13,16 @@
 // that will be refined through empirical testing with the actual Codex TUI.
 
 import { EventEmitter } from 'events';
+import { InteractivePrompt } from '../../types/messages.js';
+
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
 
 /** Minimal interface for the tmux manager dependency */
 interface TmuxCapture {
@@ -42,6 +52,7 @@ export class CodexPaneMonitor {
   private interval: ReturnType<typeof setInterval> | null = null;
   private _lastContent: string = '';
   private _lastResponseText: string = '';
+  private lastPromptId: string | null = null;
 
   constructor(
     sessionId: string,
@@ -84,7 +95,19 @@ export class CodexPaneMonitor {
       if (content === this._lastContent) return;
       this._lastContent = content;
 
-      // 1. Check for approval prompt (highest priority — blocks everything)
+      // 0. Check for interactive prompt (highest priority)
+      const interactivePrompt = this._detectPrompt(content);
+      if (interactivePrompt) {
+        if (interactivePrompt.requestId !== this.lastPromptId) {
+          this.lastPromptId = interactivePrompt.requestId;
+          this.emitter.emit('interactive-prompt', this.sessionId, interactivePrompt);
+        }
+        return; // Don't process streaming while prompt is showing
+      } else if (this.lastPromptId) {
+        this.lastPromptId = null;
+      }
+
+      // 1. Check for approval prompt (legacy — kept for backwards compat)
       const approval = detectApprovalPrompt(content);
       if (approval) {
         this.emitter.emit('approval-prompt', this.sessionId, approval);
@@ -107,6 +130,78 @@ export class CodexPaneMonitor {
     } catch {
       // Silently ignore — tmux window may have been killed
     }
+  }
+
+  /**
+   * Detect an interactive prompt in the Codex CLI pane content.
+   * Returns an InteractivePrompt if one is detected, null otherwise.
+   */
+  private _detectPrompt(content: string): InteractivePrompt | null {
+    // Command/File/Network Approval: "(y)" with proceed/run/make patterns
+    if (
+      content.includes('(y)') &&
+      (/proceed/i.test(content) || /Would you like to run/i.test(content) || /Would you like to make/i.test(content))
+    ) {
+      const options = this._parseCodexOptions(content);
+      const lines = content.split('\n');
+      const tail = lines.slice(-20);
+      const promptLine = tail.find(l => /proceed|\brun\b|\bmake\b/i.test(l)) || 'Approve action';
+      const description = tail.join('\n').trim();
+      return {
+        requestId: `codex-perm-${simpleHash(description)}`,
+        promptType: 'permission',
+        title: typeof promptLine === 'string' ? promptLine.trim() : 'Approve action',
+        description,
+        options: options.length > 0 ? options : [
+          { value: 'y', label: 'Yes' },
+          { value: 'n', label: 'No' },
+        ],
+      };
+    }
+
+    // User Input: "enter to submit" AND "esc to cancel" (but NOT approval patterns)
+    if (
+      /enter to submit/i.test(content) &&
+      /esc to cancel/i.test(content) &&
+      !content.includes('(y)')
+    ) {
+      const lines = content.split('\n');
+      const tail = lines.slice(-20);
+      const options = this._parseCodexOptions(content);
+      const description = tail.join('\n').trim();
+      if (options.length > 0) {
+        return {
+          requestId: `codex-ask-${simpleHash(description)}`,
+          promptType: 'question',
+          title: 'User Input',
+          description,
+          options,
+        };
+      }
+      return {
+        requestId: `codex-ask-${simpleHash(description)}`,
+        promptType: 'question',
+        title: 'User Input',
+        description,
+        textInput: { placeholder: 'Type your response...' },
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse Codex-style options from content.
+   * Matches patterns like "(y) Yes" or "(a) Always approve".
+   */
+  private _parseCodexOptions(content: string): { value: string; label: string }[] {
+    const results: { value: string; label: string }[] = [];
+    const regex = /\(([a-z])\)\s+(.+?)(?:\n|$)/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      results.push({ value: match[1]!, label: match[2]!.trim() });
+    }
+    return results;
   }
 }
 

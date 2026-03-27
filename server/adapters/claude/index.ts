@@ -79,10 +79,10 @@ export class ClaudeAdapter extends IAdapter {
   }
 
   setup(app: Express): void {
-    this.installHooks();
     this._registerHookRoutes(app);
   }
 
+  setHookPort(port: number | string): void { this._hookConfig.port = port; }
   installHooks(): void { this._hookConfig.install(); }
   uninstallHooks(): void { this._hookConfig.uninstall(); }
 
@@ -206,6 +206,7 @@ export class ClaudeAdapter extends IAdapter {
   async switchPermissionMode(sid: string, mode: string): Promise<boolean> { return this._tmux.switchPermissionMode(sid, mode); }
   respondPermission(reqId: string, behavior: PermissionBehavior): void { this._tmux.respondPermission(reqId, behavior); }
   async respondQuestion(reqId: string, answer: string): Promise<void> { return this._tmux.respondQuestion(reqId, answer); }
+  respondInteractivePrompt(reqId: string, opt?: string, text?: string): void { this._tmux.respondInteractivePrompt(reqId, opt, text); }
   releaseAllPending(sid: string): void { this._tmux.releaseAllPending(sid); }
   resolveAllPendingAs(sid: string, behavior: PermissionBehavior): void { this._tmux.resolveAllPendingAs(sid, behavior); }
 

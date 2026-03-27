@@ -65,3 +65,20 @@ export interface SessionStatus {
   model: string;
   cost: number;
 }
+
+export interface InteractivePrompt {
+  requestId: string;
+  promptType: 'permission' | 'question' | 'plan' | 'loop-detected';
+  title: string;
+  description: string;
+  toolName?: string;
+  toolInput?: any;
+  options?: { value: string; label: string }[];
+  textInput?: { placeholder?: string };
+}
+
+export interface PromptResponse {
+  requestId: string;
+  selectedOption?: string;
+  textValue?: string;
+}

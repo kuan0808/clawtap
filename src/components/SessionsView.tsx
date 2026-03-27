@@ -337,6 +337,14 @@ export function SessionsView({
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="text-sm text-text truncate flex-1 mr-3">
                           <span className="inline-block w-2 h-2 rounded-full bg-success mr-1.5 shrink-0" />
+                          {session.adapter && (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 rounded shrink-0 mr-1"
+                              style={{ color: getBrand(session.adapter).color, backgroundColor: `${getBrand(session.adapter).color}20` }}
+                            >
+                              {getBrand(session.adapter).displayName}
+                            </span>
+                          )}
                           {session.firstPrompt || session.sessionId}
                         </span>
                         <div className="flex items-center gap-2 shrink-0">

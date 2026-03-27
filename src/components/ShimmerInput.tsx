@@ -260,6 +260,15 @@ export function ShimmerInput({ onSend, onStop, disabled, streaming, interrupted,
             ref={textareaRef}
             value={text}
             onChange={(e) => { setText(e.target.value); handleInput(); }}
+            onKeyDown={(e) => {
+              // Desktop: Enter sends, Shift+Enter newline
+              // Mobile: Enter always newline (send via button)
+              if (e.key === 'Enter' && !('ontouchstart' in window) && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            enterKeyHint="enter"
             placeholder={isRecording && interimText ? interimText : imageFile ? "Add a message (optional)..." : interrupted ? "What should Claude do instead?" : placeholderProp || "Send a message..."}
             rows={1}
             className={cn(

@@ -22,12 +22,12 @@ export interface AppConfig {
 }
 
 export function loadConfig(): AppConfig {
-  const password = process.env.CLAUDE_UI_PASSWORD;
+  const password = process.env.CLAWTAP_PASSWORD;
   if (!password) {
     throw new Error(
-      'CLAUDE_UI_PASSWORD is required.\n' +
+      'CLAWTAP_PASSWORD is required.\n' +
       'Set it and try again:\n' +
-      '  export CLAUDE_UI_PASSWORD=your-password'
+      '  export CLAWTAP_PASSWORD=your-password'
     );
   }
 

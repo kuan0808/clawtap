@@ -61,6 +61,11 @@ export function initDB(config: AppConfig): void {
     );
     CREATE INDEX IF NOT EXISTS idx_reviews_parent ON session_reviews(parent_cli_session_id);
 
+    CREATE TABLE IF NOT EXISTS session_adapters (
+      session_id TEXT PRIMARY KEY,
+      adapter TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS saved_instructions (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -122,6 +127,8 @@ interface PreparedStatements {
   instructionCreate: BetterSqlite3.Statement;
   instructionGetAll: BetterSqlite3.Statement;
   instructionDelete: BetterSqlite3.Statement;
+  sessionAdapterSet: BetterSqlite3.Statement;
+  sessionAdapterGet: BetterSqlite3.Statement;
 }
 
 let _stmts: PreparedStatements | null = null;
@@ -201,6 +208,12 @@ function stmts(): PreparedStatements {
       ),
       instructionDelete: d.prepare(
         `DELETE FROM saved_instructions WHERE id = ?`
+      ),
+      sessionAdapterSet: d.prepare(
+        `INSERT OR REPLACE INTO session_adapters (session_id, adapter) VALUES (?, ?)`
+      ),
+      sessionAdapterGet: d.prepare(
+        `SELECT adapter FROM session_adapters WHERE session_id = ?`
       ),
     };
   }
@@ -283,6 +296,18 @@ export const preferences = {
 };
 
 // --- Session Review Operations ---
+
+// --- Session → Adapter Mapping (persists across restarts) ---
+
+export const sessionAdapters = {
+  set(sessionId: string, adapter: string): void {
+    stmts().sessionAdapterSet.run(sessionId, adapter);
+  },
+  get(sessionId: string): string | null {
+    const row = stmts().sessionAdapterGet.get(sessionId) as { adapter: string } | undefined;
+    return row?.adapter ?? null;
+  },
+};
 
 let _childIdCache: Set<string> | null = null;
 

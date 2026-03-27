@@ -43,6 +43,7 @@ export class WsClient {
         const msg = JSON.parse(event.data);
         if (msg.type === WS.SESSION_CREATED) {
           this.activeSessionId = msg.sessionId;
+          if (msg.adapter) this.activeAdapter = msg.adapter;
         }
         this.onMessage(msg);
       } catch {}
@@ -68,7 +69,7 @@ export class WsClient {
     }
   }
 
-  setActiveSession(sessionId: string | null, adapter?: string) {
+  setActiveSession(sessionId: string | null, adapter?: string | null) {
     this.activeSessionId = sessionId;
     this.activeAdapter = adapter || null;
   }

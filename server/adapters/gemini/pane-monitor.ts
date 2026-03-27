@@ -16,6 +16,16 @@
 // that will be refined through empirical testing with the actual Gemini CLI.
 
 import { EventEmitter } from 'events';
+import { InteractivePrompt } from '../../types/messages.js';
+
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
 
 /** Minimal interface for the tmux manager dependency */
 interface TmuxCapture {
@@ -44,6 +54,7 @@ export class GeminiPaneMonitor {
   private interval: ReturnType<typeof setInterval> | null = null;
   private _lastContent: string = '';
   private _lastResponseText: string = '';
+  private lastPromptId: string | null = null;
 
   constructor(
     sessionId: string,
@@ -86,6 +97,20 @@ export class GeminiPaneMonitor {
       if (content === this._lastContent) return;
       this._lastContent = content;
 
+      const lines = content.split('\n');
+
+      // 0. Check for interactive prompt (highest priority)
+      const prompt = this._detectPrompt(content, lines);
+      if (prompt) {
+        if (prompt.requestId !== this.lastPromptId) {
+          this.lastPromptId = prompt.requestId;
+          this.emitter.emit('interactive-prompt', this.sessionId, prompt);
+        }
+        return; // Don't process streaming while prompt is showing
+      } else if (this.lastPromptId) {
+        this.lastPromptId = null;
+      }
+
       // 1. Check for thinking indicator
       const thinking = detectThinking(content);
       if (thinking) {
@@ -102,6 +127,103 @@ export class GeminiPaneMonitor {
     } catch {
       // Silently ignore — tmux window may have been killed
     }
+  }
+
+  /**
+   * Detect an interactive prompt in the Gemini CLI pane content.
+   * Returns an InteractivePrompt if one is detected, null otherwise.
+   */
+  private _detectPrompt(content: string, _lines: string[]): InteractivePrompt | null {
+    // Tool Confirmation: "Action Required" with numbered options
+    if (content.includes('Action Required') && /●\s+\d+\./.test(content)) {
+      const description = this._extractBetween(content, 'Action Required', '●');
+      const options = this._parseNumberedOptions(content);
+      return {
+        requestId: `gemini-perm-${simpleHash(description)}`,
+        promptType: 'permission',
+        title: 'Action Required',
+        description: description.trim(),
+        options,
+      };
+    }
+
+    // Plan Approval: "Approval" with "Yes" and "feedback"
+    if (content.includes('Approval') && /Yes/.test(content) && /feedback/i.test(content)) {
+      const description = this._extractBetween(content, 'Approval', '●');
+      const options = this._parseNumberedOptions(content);
+      return {
+        requestId: `gemini-plan-${simpleHash(description)}`,
+        promptType: 'plan',
+        title: 'Plan Approval',
+        description: description.trim(),
+        options,
+        textInput: { placeholder: 'Provide feedback...' },
+      };
+    }
+
+    // AskUser: "Answer Questions"
+    if (content.includes('Answer Questions')) {
+      const description = this._extractBetween(content, 'Answer Questions', '●');
+      const options = this._parseNumberedOptions(content);
+      if (options.length > 0) {
+        return {
+          requestId: `gemini-ask-${simpleHash(description)}`,
+          promptType: 'question',
+          title: 'Answer Questions',
+          description: description.trim(),
+          options,
+        };
+      }
+      return {
+        requestId: `gemini-ask-${simpleHash(description)}`,
+        promptType: 'question',
+        title: 'Answer Questions',
+        description: description.trim(),
+        textInput: { placeholder: 'Type your answer...' },
+      };
+    }
+
+    // Loop Detection: "potential loop was detected"
+    if (content.includes('potential loop was detected')) {
+      const options = this._parseNumberedOptions(content);
+      return {
+        requestId: `gemini-loop-${simpleHash('loop-detected')}`,
+        promptType: 'loop-detected',
+        title: 'Loop Detected',
+        description: 'A potential loop was detected.',
+        options,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse numbered options from Gemini CLI content.
+   * Matches patterns like "● 1. Allow this action" or "1. Allow this action".
+   * Returns 0-based index values.
+   */
+  private _parseNumberedOptions(content: string): { value: string; label: string }[] {
+    const results: { value: string; label: string }[] = [];
+    const regex = /(?:●\s+)?(\d+)\.\s+(.+?)(?:\n|$)/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      const index = parseInt(match[1]!, 10);
+      results.push({ value: String(index - 1), label: match[2]!.trim() });
+    }
+    return results;
+  }
+
+  /**
+   * Extract text between two markers in the content.
+   */
+  private _extractBetween(content: string, start: string, end: string): string {
+    const startIdx = content.indexOf(start);
+    if (startIdx === -1) return '';
+    const afterStart = startIdx + start.length;
+    const endIdx = content.indexOf(end, afterStart);
+    if (endIdx === -1) return content.slice(afterStart).trim();
+    return content.slice(afterStart, endIdx).trim();
   }
 }
 
@@ -178,7 +300,7 @@ export function extractResponseText(content: string): string {
     // Gemini user prompt patterns (conservative):
     // - ">" or "❯" at start of line followed by user text
     // - "user:" prefix
-    if (/^\s*[>❯]\s+\S/.test(line) || /^\s*user:\s/i.test(line)) {
+    if (/^\s*[>*❯]\s+\S/.test(line) || /^\s*user:\s/i.test(line)) {
       lastUserPrompt = i;
       break;
     }
@@ -204,7 +326,7 @@ export function extractResponseText(content: string): string {
       // Horizontal rules
       /^[─━═\-]{5,}/.test(line.trim()) ||
       // New user prompt
-      /^\s*[>❯]\s+\S/.test(line) ||
+      /^\s*[>*❯]\s+\S/.test(line) ||
       // Spinner/thinking indicators (braille set)
       /^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*/.test(line)
     ) {

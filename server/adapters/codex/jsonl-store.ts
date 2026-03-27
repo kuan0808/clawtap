@@ -3,6 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
+import { stripMarker } from '../shared/content-utils.js';
 import { CodexTranscriptParser } from './transcript-parser.js';
 import type { CodexJsonlEntry } from './transcript-parser.js';
 import type { DirectoryEntry, MessagesResult } from '../interface.js';
@@ -202,7 +203,7 @@ export async function getSessions(dir?: string, limit?: number): Promise<Session
           cwd,
           lastModified: entry.ts * 1000, // Convert to ms timestamp
           firstPrompt: entry.text
-            ? entry.text.replace(/^(?:\[CLAWTAP_REF:[^\]]+\]|\d+\])(?:\\n|\n)?/, '').slice(0, 200)
+            ? stripMarker(entry.text).slice(0, 200)
             : null,
           model,
         };

@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Fragment, type RefObject } from 'react';
 import { useChat } from '../hooks/useChat';
 import { PLAN_OPTION } from '../lib/ws-types';
-import { PermissionOverlay } from './PermissionOverlay';
+import { InteractivePromptOverlay } from './InteractivePromptOverlay';
 import { StatusBar } from './StatusBar';
-import { AskQuestion } from './AskQuestion';
 import { PlanMode } from './PlanMode';
 import { ChatBody } from './ChatBody';
 import { FloatingReviewPanel, type ReviewPanelHandle } from './FloatingReviewPanel';
@@ -11,11 +10,11 @@ import { ReviewActionMenu } from './ReviewActionMenu';
 import { SendToExistingSheet } from './SendToExistingSheet';
 import { CollapsedReviewCard } from './CollapsedReviewCard';
 import { BlockMarker } from './BlockMarker';
-import { BottomSheet } from './BottomSheet';
 import { api } from '../lib/api';
 import { getBrand } from '../lib/adapter-brands';
 import { extractTextFromBlocks } from '../lib/content-utils';
 import { patchAdapterPrefs } from '../lib/adapter-prefs';
+import { LoadingAnimation } from './ui/LoadingAnimation';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ChevronLeft, Copy, Check, X } from 'lucide-react';
@@ -140,11 +139,11 @@ export function ChatView({
 
   const {
     messages, toolStatuses, streaming, pendingResponse, wsStatus, sessionId, liveStatus,
-    interrupted, sessionStatus, adapterConfig, selectedAdapter, permissionRequest, model, permissionMode,
+    interrupted, sessionStatus, adapterConfig, selectedAdapter, interactivePrompt, model, permissionMode,
     queuedMessage, clearQueuedMessage,
     activeReviews, setActiveReviews, activeReviewPanel, setActiveReviewPanel,
     historyReview, setHistoryReview,
-    sendMessage, respondPermission, respondAsk, respondPlan, abort,
+    sendMessage, respondPrompt, respondPlan, abort,
     updateModel, updatePermissionMode,
   } = useChat(initialSessionId, cwd, adapter, initialPrompt);
 
@@ -189,22 +188,13 @@ export function ChatView({
 
   // Shared cleanup for ending/closing an active review
   const closeReview = useCallback(async (reviewId?: string) => {
-    // Empty reviewId means the pending tab's close button — just cancel it
-    if (reviewId === '') {
-      setPendingReview(null);
-      return;
-    }
     const targetId = reviewId || activeReviews[0]?.reviewId;
     if (!targetId) return;
-
-    const lastMsg = messages[messages.length - 1];
-    const endAnchorMessageId = lastMsg?.id || undefined;
-
-    try { await api.endReview(targetId, endAnchorMessageId); } catch {}
-
     setActiveReviews(prev => prev.filter(r => r.reviewId !== targetId));
     setHistoryReview(null);
-    setPendingReview(null);
+    const lastMsg = messages[messages.length - 1];
+    const endAnchorMessageId = lastMsg?.id || undefined;
+    try { await api.endReview(targetId, endAnchorMessageId); } catch {}
   }, [activeReviews, messages]);
 
   // Close history panel only (does not affect active review)
@@ -227,6 +217,7 @@ export function ChatView({
     // New reviews added — batch into a single setReviews call
     const newReviews = activeReviews.filter(r => !prevIds.has(r.reviewId));
     if (newReviews.length > 0) {
+      console.log(`[reviewSync] ${newReviews.length} new review(s):`, newReviews.map(r => `${r.reviewId.slice(0,8)} anchor=${r.anchorMessageId}`));
       setReviews(prev => {
         const existingIds = new Set(prev.map(r => r.id));
         const toAdd = newReviews
@@ -303,23 +294,29 @@ export function ChatView({
 
   const [saveToast, setSaveToast] = useState<{ instruction: string; label: string } | null>(null);
 
-  // Pending review: waiting for child session to be created (not yet in activeReviews)
-  const [pendingReview, setPendingReview] = useState<{
-    childAdapter: string;
-    anchorMessageId: string;
-    reviewTitle: string;
-    prompt: string;
-  } | null>(null);
-
   const openReview = useCallback((adapter: string, model: string, prompt: string, title: string) => {
     const anchorId = reviewMenuMessageId;
     setReviewMenuMessageId(null);
     if (!anchorId) return;
+    const reviewId = crypto.randomUUID();
+    console.log(`[openReview] creating review=${reviewId.slice(0,8)} adapter=${adapter} anchor=${anchorId} prompt=${prompt?.substring(0, 30)}`);
     patchAdapterPrefs(adapter, { model });
     setHistoryReview(null);
-    setPendingReview({ childAdapter: adapter, anchorMessageId: anchorId, reviewTitle: title, prompt });
+    setActiveReviews(prev => {
+      console.log(`[openReview] activeReviews before: ${prev.length} entries, ids: ${prev.map(r => r.reviewId.slice(0,8)).join(',')}`);
+      return [...prev, {
+        reviewId,
+        childSessionId: '',
+        childCliSessionId: '',
+        childAdapter: adapter,
+        anchorMessageId: anchorId,
+        reviewTitle: title,
+        prompt,
+        permissionMode: adapter === 'gemini' ? 'yolo' : 'bypassPermissions',
+      }];
+    });
     setActiveReviewPanel('expanded');
-  }, [reviewMenuMessageId, cwd]);
+  }, [reviewMenuMessageId]);
 
   const handleDirectSend = useCallback((adapter: string, model: string) => {
     const anchorMsg = messages.find(m => m.id === reviewMenuMessageId);
@@ -437,7 +434,7 @@ export function ChatView({
         permissionMode={permissionMode}
         sessionStatus={sessionStatus}
         adapterConfig={adapterConfig}
-        selectedAdapter={selectedAdapter}
+        selectedAdapter={selectedAdapter!}
         streaming={streaming}
         onModelChange={updateModel}
         onPermissionModeChange={updatePermissionMode}
@@ -447,39 +444,37 @@ export function ChatView({
 
   const isHistoryPanel = !!historyReview;
 
-  // Use ref so onSessionCreatedCallback always reads the latest pendingReview
-  // (prevents stale closure if a second review is opened while the first is still pending)
-  const pendingReviewRef = useRef(pendingReview);
-  pendingReviewRef.current = pendingReview;
+  const activeReviewsRef = useRef(activeReviews);
+  activeReviewsRef.current = activeReviews;
 
-  const onSessionCreatedCallback = useCallback(async (childSid: string) => {
-    const pending = pendingReviewRef.current;
-    if (!sessionId || !pending) return;
+  const onSessionCreatedCallback = useCallback(async (reviewId: string, childSid: string) => {
+    console.log(`[onSessionCreated] reviewId=${reviewId.slice(0,8)} childSid=${childSid.slice(0,8)} parentSid=${sessionId?.slice(0,8)}`);
+    if (!sessionId) return;
+    const review = activeReviewsRef.current.find(r => r.reviewId === reviewId);
+    if (!review) { console.log(`[onSessionCreated] review not found in activeReviews`); return; }
     try {
-      const result = await api.registerReview(
-        sessionId,
-        childSid,
-        pending.childAdapter,
-        pending.anchorMessageId,
-        pending.prompt,
-        pending.reviewTitle,
-      );
-      setActiveReviews(prev => {
-        if (prev.some(r => r.reviewId === result.reviewId)) return prev;
-        return [...prev, {
-          reviewId: result.reviewId,
-          childSessionId: childSid,
-          childCliSessionId: childSid,
-          childAdapter: pending.childAdapter,
-          anchorMessageId: pending.anchorMessageId,
-          reviewTitle: pending.reviewTitle,
-        }];
+      console.log(`[onSessionCreated] calling api.registerReview...`);
+      await api.registerReview({
+        reviewId,
+        parentCliSessionId: sessionId,
+        childSessionId: childSid,
+        targetAdapter: review.childAdapter,
+        anchorMessageId: review.anchorMessageId || '',
+        prompt: review.prompt || '',
+        title: review.reviewTitle || '',
       });
     } catch (err) {
       console.error('Failed to register review:', err);
     }
-    setPendingReview(null);
   }, [sessionId]);
+
+  if (!selectedAdapter) {
+    return (
+      <div className="flex flex-col h-dvh bg-bg items-center justify-center">
+        <LoadingAnimation size="md" label="Connecting..." />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-dvh bg-bg relative overflow-hidden">
@@ -516,31 +511,25 @@ export function ChatView({
         className="flex-1"
       />
 
-      {/* Floating review panel — active reviews (tabbed) + pending review */}
-      {activeReviewPanel === 'expanded' && (activeReviews.length > 0 || pendingReview) && (
-        <FloatingReviewPanel
-          ref={reviewPanelRef}
-          reviews={[
-            ...activeReviews.map(r => ({
+      {/* Floating review panel — CSS-hidden when minimized to keep hooks alive */}
+      {activeReviews.length > 0 && (
+        <div style={{ display: activeReviewPanel === 'expanded' ? 'contents' : 'none' }}>
+          <FloatingReviewPanel
+            ref={reviewPanelRef}
+            reviews={activeReviews.map(r => ({
               reviewId: r.reviewId,
               childSessionId: r.childSessionId,
               childAdapter: r.childAdapter,
               reviewTitle: r.reviewTitle,
-            })),
-            // Pending review: no reviewId yet, triggers session creation in ReviewTab
-            ...(pendingReview ? [{
-              reviewId: '',
-              childSessionId: '',
-              childAdapter: pendingReview.childAdapter,
-              reviewTitle: pendingReview.reviewTitle,
-            }] : []),
-          ]}
-          onEnd={(reviewId) => closeReview(reviewId)}
-          onMinimize={() => setActiveReviewPanel('minimized')}
-          initialPrompt={pendingReview?.prompt || undefined}
-          cwd={cwd}
-          onSessionCreated={onSessionCreatedCallback}
-        />
+              prompt: r.prompt,
+              permissionMode: r.permissionMode,
+            }))}
+            onEnd={(reviewId) => closeReview(reviewId)}
+            onMinimize={() => setActiveReviewPanel('minimized')}
+            cwd={cwd}
+            onSessionCreated={onSessionCreatedCallback}
+          />
+        </div>
       )}
 
       {/* Floating review panel — read-only history view */}
@@ -590,23 +579,13 @@ export function ChatView({
         </div>
       )}
 
-      {/* Permission / Ask overlays */}
-      {permissionRequest && permissionRequest.toolName === 'AskUserQuestion' ? (
-        <BottomSheet visible zIndex="z-40" backdropClassName="bg-black/60" className="p-6" showHandle={false}>
-          <AskQuestion
-            toolUseId={permissionRequest.requestId}
-            input={permissionRequest.input}
-            onRespond={(requestId: string, response: string) => respondAsk(requestId, response)}
-          />
-        </BottomSheet>
-      ) : permissionRequest ? (
-        <PermissionOverlay
-          request={permissionRequest}
-          onAllow={() => respondPermission(permissionRequest.requestId, 'allow')}
-          onAllowAll={() => respondPermission(permissionRequest.requestId, 'allow_session')}
-          onDeny={(msg?: string) => respondPermission(permissionRequest.requestId, 'deny', msg)}
+      {/* Interactive prompt overlay (permissions, questions, plan approval, etc.) */}
+      {interactivePrompt && (
+        <InteractivePromptOverlay
+          prompt={interactivePrompt}
+          onRespond={respondPrompt}
         />
-      ) : null}
+      )}
     </div>
   );
 }

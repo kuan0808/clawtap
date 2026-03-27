@@ -75,6 +75,14 @@ export function initAll(app: Express): Map<string, IAdapter> {
   return adapters;
 }
 
+/** Install hooks with confirmed port (called after server.listen succeeds) */
+export function installAllHooks(port: number | string): void {
+  for (const [, adapter] of adapters) {
+    adapter.setHookPort(port);
+    adapter.installHooks();
+  }
+}
+
 export function getAll(): Map<string, IAdapter> {
   return adapters;
 }
