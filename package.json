@@ -1,7 +1,7 @@
 {
   "name": "@kuannnn/clawtap",
   "version": "0.2.0",
-  "description": "Use Claude Code from your phone. Real-time mobile UI synced with your desktop terminal via tmux.",
+  "description": "Mobile UI for AI coding assistants. Real-time sync with Claude Code, Codex CLI, and Gemini CLI via tmux.",
   "type": "module",
   "bin": {
     "clawtap": "bin/clawtap"

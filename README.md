@@ -104,9 +104,9 @@ Send any AI's response to a different AI for a second opinion — the killer fea
 
 See AI responses **as they're being written** — not after they finish. Thinking indicators update in real-time. Tool calls appear as inline cards with live status transitions. Context usage and cost stream to your status bar.
 
-### Mobile Permission Control
+### Interactive Prompts
 
-Slide-up overlay with the exact tool name, file path, and command. Allow, Allow All, or Deny with a 120-second countdown. Switch between permission modes mid-session with a single tap on the status bar. Your terminal shows the same prompt — answer from whichever device is closer.
+Unified overlay for all AI interactions that need your input — permissions, questions, and plan approvals. Shows the exact tool name, options, or free-text input with a 120-second countdown. Works across all three adapters. Switch permission modes mid-session with a single tap on the status bar.
 
 ### Rich Tool Visualization
 
@@ -118,6 +118,7 @@ Every tool call renders as an expandable card:
 | **Write** | File path + content preview with line count |
 | **Read / Bash / Grep** | Input/output with syntax highlighting |
 | **Agent** | Collapsible group with progress indicators |
+| **AskUserQuestion** | Question + options (selected/unselected) or quoted free-text answer |
 
 ### Queue & Continue
 
