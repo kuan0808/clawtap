@@ -477,7 +477,7 @@ export function ChatView({
   }
 
   return (
-    <div className="flex flex-col h-dvh bg-bg relative overflow-hidden">
+    <div className="flex flex-col h-dvh bg-bg relative overflow-hidden safe-top">
       {/* Header — auto-hides when scrolling up to view history */}
       <div className={`flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 transition-all duration-200 ${headerHidden ? 'max-h-0 py-0 overflow-hidden opacity-0 border-b-0' : 'max-h-16 opacity-100'}`}>
         <Button variant="ghost" size="icon" onClick={onBack}>

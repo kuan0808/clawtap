@@ -228,7 +228,7 @@ export function SessionsView({
   // --- Projects list (default view) ---
   return (
     <div className="min-h-screen bg-bg flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 safe-top">
         <span className="flex items-center gap-1.5 text-lg font-medium text-text font-mono tracking-wider">
           <svg width="20" height="15" viewBox="0 0 8 6" style={{ imageRendering: 'pixelated' }} className="text-accent">
             <rect x="4" y="0" width="4" height="1" fill="currentColor"/>

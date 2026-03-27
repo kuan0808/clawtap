@@ -1,10 +1,29 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { NetworkFirst } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope;
 
 // Precache static assets (injected by vite-plugin-pwa at build time)
 precacheAndRoute(self.__WB_MANIFEST);
+
+// Cache stable API responses — show last-known data when offline.
+// Exclude volatile real-time endpoints (messages, active sessions, reviews).
+registerRoute(
+  ({ url }) => {
+    const p = url.pathname;
+    if (!p.startsWith('/api/')) return false;
+    if (p.includes('/messages')) return false;
+    if (p.startsWith('/api/active-sessions')) return false;
+    if (p.startsWith('/api/reviews')) return false;
+    return true;
+  },
+  new NetworkFirst({
+    cacheName: 'api-cache',
+    networkTimeoutSeconds: 5,
+  })
+);
 
 // Push notification handler — server already filters by clientCount,
 // so we always show the notification if one is received.

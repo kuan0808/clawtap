@@ -142,7 +142,7 @@ export function NewChatView({
   return (
     <div className="flex flex-col h-screen bg-bg">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 safe-top">
         <Button variant="ghost" size="icon" onClick={onBack}>
           <ChevronLeft className="w-5 h-5" />
         </Button>

@@ -55,7 +55,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-col h-full bg-bg">
       {/* Header */}
-      <div className="flex items-center px-4 py-3 border-b border-border">
+      <div className="flex items-center px-4 py-3 border-b border-border safe-top">
         <button onClick={onBack} className="text-text-dim hover:text-text mr-2"><ChevronLeft className="w-5 h-5" /></button>
         <span className="text-lg font-medium text-text font-mono tracking-wide">Settings</span>
       </div>

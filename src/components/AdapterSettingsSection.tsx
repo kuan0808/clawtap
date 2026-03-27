@@ -36,7 +36,7 @@ export function AdapterSettingsSection({ adapter, onBack }: { adapter: string; o
 
   return (
     <div className="flex flex-col h-full bg-bg">
-      <div className="flex items-center px-4 py-3 border-b border-border gap-2">
+      <div className="flex items-center px-4 py-3 border-b border-border gap-2 safe-top">
         <button onClick={onBack} className="text-text-dim hover:text-text"><ChevronLeft className="w-5 h-5" /></button>
         <AdapterIcon adapterId={adapter} size={20} />
         <span className="font-medium text-text font-mono tracking-wide">{brand.displayName} Settings</span>

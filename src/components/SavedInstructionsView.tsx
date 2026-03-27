@@ -42,7 +42,7 @@ export function SavedInstructionsView({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-col h-full bg-bg">
       {/* Header */}
-      <div className="flex items-center px-4 py-3 border-b border-border">
+      <div className="flex items-center px-4 py-3 border-b border-border safe-top">
         <button
           onClick={onBack}
           className="text-text-dim hover:text-text mr-2"
