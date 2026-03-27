@@ -27,7 +27,7 @@ function PlanViewer({ plan }: { plan: string }) {
   if (expanded) {
     return (
       <div className="fixed inset-0 bg-bg z-50 flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 safe-top">
           <Badge>PLAN</Badge>
           <Button variant="ghost" size="icon" onClick={() => setExpanded(false)}>
             <X className="w-5 h-5" />
@@ -567,7 +567,7 @@ export function ChatView({
 
       {/* Save-as-instruction toast */}
       {saveToast && (
-        <div className="fixed bottom-20 left-4 right-4 bg-surface border border-border rounded-xl p-3 flex items-center justify-between z-30">
+        <div className="fixed bottom-20 left-4 right-4 bg-surface border border-border rounded-xl p-3 flex items-center justify-between z-30 safe-bottom">
           <span className="text-sm text-text-dim">存成常用？</span>
           <button
             className="text-sm text-accent font-medium px-3 py-1 rounded-md hover:bg-accent/10"

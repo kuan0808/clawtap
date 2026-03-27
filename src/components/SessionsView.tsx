@@ -132,7 +132,7 @@ export function SessionsView({
   if (selectedProjectDir) {
     return (
       <div className="min-h-screen bg-bg flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 safe-top">
           <div className="flex items-center gap-2 min-w-0">
             <Button
               variant="ghost"

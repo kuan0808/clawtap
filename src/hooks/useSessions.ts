@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../lib/api';
 import { STORAGE } from '../lib/storage-keys';
 
@@ -39,7 +39,7 @@ export function useSessions() {
     }
   }, []);
 
-  // Poll every 10s when Active tab is selected
+  // Poll every 3s when Active tab is selected
   useEffect(() => {
     if (activeTab !== 'active') return;
     fetchActiveSessions();
@@ -86,9 +86,26 @@ export function useSessions() {
     setSelectedProjectDir(dir);
     if (dir) {
       localStorage.setItem(STORAGE.PROJECT_DIR, dir);
+      // Push history so back navigation (swipe-back, back button) returns to project list
+      window.history.pushState({ selectProject: dir }, '', '/');
     } else {
       localStorage.removeItem(STORAGE.PROJECT_DIR);
     }
+  }, []);
+
+  // Clear project selection on back navigation (swipe-back, back button)
+  const selectedProjectDirRef = useRef(selectedProjectDir);
+  selectedProjectDirRef.current = selectedProjectDir;
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (!e.state?.selectProject && selectedProjectDirRef.current) {
+        setSelectedProjectDir(null);
+        localStorage.removeItem(STORAGE.PROJECT_DIR);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   return {

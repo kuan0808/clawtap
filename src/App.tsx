@@ -231,47 +231,62 @@ export function App() {
 
   const isOffline = !deviceOnline || serverOnline === false;
 
+  const updateBanner = swUpdateAvailable && (
+    <div className="fixed bottom-6 left-4 right-4 bg-surface border border-accent/30 rounded-md px-4 py-3 flex items-center justify-between z-50 shadow-lg safe-bottom">
+      <span className="text-sm text-text font-mono">New version available</span>
+      <div className="flex gap-2">
+        <button onClick={() => window.location.reload()} className="text-sm font-medium text-accent hover:text-accent-light cursor-pointer">Refresh</button>
+        <button onClick={() => setSwUpdateAvailable(false)} className="text-sm text-text-dim hover:text-text cursor-pointer">Later</button>
+      </div>
+    </div>
+  );
+
   // Splash screen while first health check is pending
   if (serverOnline === null) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <LoadingAnimation size="lg" label="Connecting..." />
-      </div>
+      <>
+        <div className="min-h-screen bg-bg flex items-center justify-center">
+          <LoadingAnimation size="lg" label="Connecting..." />
+        </div>
+        {updateBanner}
+      </>
     );
   }
 
   // Offline screen
   if (isOffline) {
-    return <OfflineView onRetry={checkHealth} />;
+    return <><OfflineView onRetry={checkHealth} />{updateBanner}</>;
   }
 
   if (!authed) {
-    return <LoginView onLogin={handleLogin} />;
+    return <><LoginView onLogin={handleLogin} />{updateBanner}</>;
   }
 
   if (view.name === 'newchat') {
     return (
-      <NewChatView
-        cwd={view.cwd}
-        onStartChat={startChat}
-        onBack={backToSessions}
-      />
+      <>
+        <NewChatView cwd={view.cwd} onStartChat={startChat} onBack={backToSessions} />
+        {updateBanner}
+      </>
     );
   }
 
   if (view.name === 'settings') {
-    return <SettingsView onBack={() => setView({ name: 'sessions' })} />;
+    return <><SettingsView onBack={() => setView({ name: 'sessions' })} />{updateBanner}</>;
   }
 
   if (view.name === 'chat') {
     return (
-      <ChatView
-        sessionId={view.sessionId}
-        cwd={view.cwd}
-        initialPrompt={view.initialPrompt}
-        adapter={view.adapter}
-        onBack={backToSessions}
-      />
+      <>
+        <ChatView
+          sessionId={view.sessionId}
+          cwd={view.cwd}
+          initialPrompt={view.initialPrompt}
+          adapter={view.adapter}
+          onBack={backToSessions}
+        />
+        {updateBanner}
+      </>
     );
   }
 
@@ -285,15 +300,7 @@ export function App() {
         onInstall={handleInstall}
         onDismissInstall={dismissInstall}
       />
-      {swUpdateAvailable && (
-        <div className="fixed bottom-6 left-4 right-4 bg-surface border border-accent/30 rounded-md px-4 py-3 flex items-center justify-between z-50 shadow-lg">
-          <span className="text-sm text-text font-mono">New version available</span>
-          <div className="flex gap-2">
-            <button onClick={() => window.location.reload()} className="text-sm font-medium text-accent hover:text-accent-light cursor-pointer">Refresh</button>
-            <button onClick={() => setSwUpdateAvailable(false)} className="text-sm text-text-dim hover:text-text cursor-pointer">Later</button>
-          </div>
-        </div>
-      )}
+      {updateBanner}
     </>
   );
 }

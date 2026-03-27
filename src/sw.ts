@@ -8,6 +8,12 @@ declare const self: ServiceWorkerGlobalScope;
 // Precache static assets (injected by vite-plugin-pwa at build time)
 precacheAndRoute(self.__WB_MANIFEST);
 
+// Skip waiting + claim so updates take effect immediately
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 // Cache stable API responses — show last-known data when offline.
 // Exclude volatile real-time endpoints (messages, active sessions, reviews).
 registerRoute(
@@ -52,7 +58,7 @@ self.addEventListener('push', (event) => {
     return self.registration.showNotification(payload.title, {
       body: payload.body,
       icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
+      badge: '/badge-96x96.png',
       tag: payload.tag || payload.data?.sessionId || 'default',
       data: payload.data,
     });

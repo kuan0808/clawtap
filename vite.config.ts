@@ -39,7 +39,7 @@ export default defineConfig({
         categories: ['developer-tools', 'productivity'],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,svg,woff2}', '*.png', 'mascot/*.png'],
+        globPatterns: ['**/*.{js,css,html,ico,svg,woff2}', 'favicon-*.png', 'apple-touch-icon.png', 'badge-*.png', 'mascot/*.png'],
       },
     }),
   ],
