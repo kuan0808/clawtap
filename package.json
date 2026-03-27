@@ -1,6 +1,6 @@
 {
   "name": "@kuannnn/clawtap",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Mobile UI for AI coding assistants. Real-time sync with Claude Code, Codex CLI, and Gemini CLI via tmux.",
   "type": "module",
   "bin": {
