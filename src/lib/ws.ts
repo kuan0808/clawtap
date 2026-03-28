@@ -5,6 +5,9 @@ export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecti
 type MessageHandler = (msg: any) => void;
 type StatusHandler = (status: WsStatus) => void;
 
+/** Minimum hidden duration (ms) before forcing reconnect on visibility change. */
+const VISIBILITY_RECONNECT_THRESHOLD = 3000;
+
 export class WsClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -15,6 +18,8 @@ export class WsClient {
   private shouldReconnect = true;
   private activeSessionId: string | null = null;
   private activeAdapter: string | null = null;
+  private visibilityHandler: (() => void) | null = null;
+  private hiddenSince: number | null = null;
 
   constructor(token: string, onMessage: MessageHandler, onStatus: StatusHandler) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -46,7 +51,9 @@ export class WsClient {
           if (msg.adapter) this.activeAdapter = msg.adapter;
         }
         this.onMessage(msg);
-      } catch {}
+      } catch (err) {
+        console.error('[ws] Failed to parse message:', err);
+      }
     };
 
     this.ws.onclose = () => {
@@ -61,6 +68,8 @@ export class WsClient {
     this.ws.onerror = () => {
       this.ws?.close();
     };
+
+    this._startVisibilityWatch();
   }
 
   send(msg: any) {
@@ -74,9 +83,50 @@ export class WsClient {
     this.activeAdapter = adapter || null;
   }
 
+  /** Force close and reconnect immediately (reset backoff). */
+  forceReconnect() {
+    if (!this.shouldReconnect) return;
+    this.reconnectDelay = 1000;
+    this.hiddenSince = null;
+    const old = this.ws;
+    this.ws = null;
+    if (old) {
+      old.onclose = null;
+      old.onerror = null;
+      old.onmessage = null;
+      old.close();
+    }
+    this.connect();
+  }
+
   disconnect() {
     this.shouldReconnect = false;
+    this._stopVisibilityWatch();
     this.ws?.close();
     this.ws = null;
+  }
+
+  private _startVisibilityWatch() {
+    if (this.visibilityHandler) return;
+    this.visibilityHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        this.hiddenSince = Date.now();
+      } else if (document.visibilityState === 'visible' && this.shouldReconnect) {
+        const elapsed = this.hiddenSince ? Date.now() - this.hiddenSince : 0;
+        this.hiddenSince = null;
+        // Only force reconnect if page was hidden long enough for the WS to go stale
+        if (elapsed >= VISIBILITY_RECONNECT_THRESHOLD) {
+          this.forceReconnect();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private _stopVisibilityWatch() {
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 }

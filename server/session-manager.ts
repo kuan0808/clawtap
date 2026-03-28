@@ -7,6 +7,7 @@ import { basename } from 'path';
 import type { ClientConnection } from './transport/client-connection.js';
 import { sessionReviews, sessionAdapters } from './db.js';
 import { parseAskQuestionInput } from './adapters/shared/ask-question-utils.js';
+import { TaskAggregator, TASK_TOOL_NAMES, TASK_TOOLS_ON_START } from './stores/task-aggregator.js';
 
 /** Push notification options */
 interface PushOptions {
@@ -53,6 +54,22 @@ const sessionAdapterMap = new Map<string, string>();              // sessionId -
 // under the old key. This alias map resolves old → new so late-connecting clients
 // find the correct session.
 const rekeyAliases = new Map<string, string>();                   // oldKey -> newKey
+const sessionTaskState = new Map<string, TaskAggregator>();       // sessionId -> task aggregator
+
+function getOrCreateAggregator(sessionId: string): TaskAggregator {
+  let agg = sessionTaskState.get(sessionId);
+  if (!agg) {
+    agg = new TaskAggregator();
+    sessionTaskState.set(sessionId, agg);
+  }
+  return agg;
+}
+
+function broadcastTaskState(sessionId: string): void {
+  const aggregator = sessionTaskState.get(sessionId);
+  if (!aggregator?.hasTasks) return;
+  broadcast(sessionId, { type: WS.TASK_STATE, ...aggregator.getSnapshot() });
+}
 
 export function setupSessionManager(): void {
   const adapters = getAllAdapters();
@@ -69,11 +86,24 @@ export function setupSessionManager(): void {
     adapter.on('tool-start', (sessionId: string, data: { toolName: string; [key: string]: unknown }) => {
       console.log(`[mgr] tool-start: ${data.toolName} for ${sessionId}`);
       broadcast(sessionId, { type: WS.TOOL_START, ...data });
+
+      // TaskUpdate/TodoWrite can be processed on start (input is sufficient).
+      // TaskCreate is deferred to tool-done because we need the result text for the assigned ID.
+      if (TASK_TOOLS_ON_START.has(data.toolName)) {
+        getOrCreateAggregator(sessionId).processToolUse(data.toolName, (data.input as Record<string, unknown>) || {});
+        broadcastTaskState(sessionId);
+      }
     });
 
-    adapter.on('tool-done', (sessionId: string, data: { toolName: string; [key: string]: unknown }) => {
+    adapter.on('tool-done', (sessionId: string, data: { toolName: string; result?: any; [key: string]: unknown }) => {
       console.log(`[mgr] tool-done: ${data.toolName} for ${sessionId}`);
       broadcast(sessionId, { type: WS.TOOL_DONE, ...data });
+
+      if (TASK_TOOL_NAMES.has(data.toolName)) {
+        const resultText = typeof data.result?.content === 'string' ? data.result.content : '';
+        getOrCreateAggregator(sessionId).processToolUse(data.toolName, (data.input as Record<string, unknown>) || {}, resultText);
+        broadcastTaskState(sessionId);
+      }
     });
 
     adapter.on('new-messages', (sessionId: string, messages: Array<{ role: string; [key: string]: unknown }>) => {
@@ -166,6 +196,7 @@ export function setupSessionManager(): void {
       // THEN clean up maps
       sessionClients.delete(sessionId);
       sessionAdapterMap.delete(sessionId);
+      sessionTaskState.delete(sessionId);
       // Clean rekey alias pointing to this session
       for (const [oldKey, newKey] of rekeyAliases) {
         if (newKey === sessionId) rekeyAliases.delete(oldKey);
@@ -213,6 +244,12 @@ export function setupSessionManager(): void {
       if (adapterName) {
         sessionAdapterMap.delete(oldKey);
         sessionAdapterMap.set(newKey, adapterName);
+      }
+      // Move task state
+      const taskState = sessionTaskState.get(oldKey);
+      if (taskState) {
+        sessionTaskState.delete(oldKey);
+        sessionTaskState.set(newKey, taskState);
       }
       // Update any active reviews that reference the old key as child (FIX 3)
       sessionReviews.updateChildCliId(oldKey, newKey);
@@ -438,16 +475,38 @@ export async function handleReconnect(conn: ClientConnection, sessionId?: string
   // that would duplicate what HISTORY_LOAD delivers
   adapter.syncWatcherPosition(resolvedId);
 
-  // Send current messages from store (full history for reconnection)
+  const isStreaming = adapter.isProcessing(resolvedId);
+  let historyMessages: unknown[] = [];
   try {
-    const { messages } = await adapter.getMessages(resolvedId);
-    if (messages.length > 0) {
-      send(conn, { type: WS.HISTORY_LOAD, messages });
-    }
+    ({ messages: historyMessages } = await adapter.getMessages(resolvedId));
   } catch {}
+  // Rebuild task state from history if not already cached (e.g. after server restart)
+  if (!sessionTaskState.has(resolvedId) && historyMessages.length > 0) {
+    const aggregator = new TaskAggregator();
+    for (const msg of historyMessages as Array<{ role?: string; content?: any[] }>) {
+      if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (block.type === 'tool_use' && TASK_TOOL_NAMES.has(block.name)) {
+          const resultText = block._result?.content;
+          aggregator.processToolUse(block.name, block.input || {}, typeof resultText === 'string' ? resultText : undefined);
+        }
+      }
+    }
+    if (aggregator.hasTasks) {
+      sessionTaskState.set(resolvedId, aggregator);
+    }
+  }
 
-  // Notify client if session is actively processing
-  if (adapter.isProcessing(resolvedId)) {
+  send(conn, { type: WS.HISTORY_LOAD, messages: historyMessages, streaming: isStreaming });
+
+  // Send accumulated task state if available
+  const taskAgg = sessionTaskState.get(resolvedId);
+  if (taskAgg?.hasTasks) {
+    send(conn, { type: WS.TASK_STATE, ...taskAgg.getSnapshot() });
+  }
+
+  // Fallback: client may receive broadcasts before HISTORY_LOAD during the async gap
+  if (isStreaming) {
     send(conn, { type: WS.SESSION_STATE, streaming: true });
   }
 

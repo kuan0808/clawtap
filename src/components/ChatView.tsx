@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Fragment, type RefObject } from 'react';
 import { useChat } from '../hooks/useChat';
+import { useVisualViewport } from '../hooks/useVisualViewport';
 import { PLAN_OPTION } from '../lib/ws-types';
 import { InteractivePromptOverlay } from './InteractivePromptOverlay';
 import { StatusBar } from './StatusBar';
@@ -10,6 +11,8 @@ import { ReviewActionMenu } from './ReviewActionMenu';
 import { SendToExistingSheet } from './SendToExistingSheet';
 import { CollapsedReviewCard } from './CollapsedReviewCard';
 import { BlockMarker } from './BlockMarker';
+import { TaskFab } from './TaskFab';
+import { TaskBottomSheet } from './TaskBottomSheet';
 import { api } from '../lib/api';
 import { getBrand } from '../lib/adapter-brands';
 import { extractTextFromBlocks } from '../lib/content-utils';
@@ -136,6 +139,7 @@ export function ChatView({
   const reviewPanelRef = useRef<ReviewPanelHandle>(null);
   const reviewRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerHidden = useAutoHideHeader(chatScrollRef);
+  const viewportHeight = useVisualViewport();
 
   const {
     messages, toolStatuses, streaming, pendingResponse, wsStatus, sessionId, liveStatus,
@@ -143,10 +147,12 @@ export function ChatView({
     queuedMessage, clearQueuedMessage,
     activeReviews, setActiveReviews, activeReviewPanel, setActiveReviewPanel,
     historyReview, setHistoryReview,
+    taskSnapshot,
     sendMessage, respondPrompt, respondPlan, abort,
     updateModel, updatePermissionMode,
   } = useChat(initialSessionId, cwd, adapter, initialPrompt);
 
+  const [taskSheetOpen, setTaskSheetOpen] = useState(false);
   const [availableAdapters, setAvailableAdapters] = useState<string[]>([]);
   useEffect(() => {
     api.adapters()
@@ -477,7 +483,10 @@ export function ChatView({
   }
 
   return (
-    <div className="flex flex-col h-dvh bg-bg relative overflow-hidden safe-top">
+    <div
+      className="flex flex-col bg-bg relative overflow-hidden safe-top"
+      style={{ height: viewportHeight ? `${viewportHeight}px` : '100dvh' }}
+    >
       {/* Header — auto-hides when scrolling up to view history */}
       <div className={`flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 transition-all duration-200 ${headerHidden ? 'max-h-0 py-0 overflow-hidden opacity-0 border-b-0' : 'max-h-16 opacity-100'}`}>
         <Button variant="ghost" size="icon" onClick={onBack}>
@@ -498,7 +507,6 @@ export function ChatView({
         toolStatuses={toolStatuses}
         onSend={sendMessage}
         onStop={abort}
-        disabled={false}
         interrupted={interrupted}
         sendTargets={sendTargets}
         onSendTo={handleSendTo}
@@ -578,6 +586,10 @@ export function ChatView({
           >Save</button>
         </div>
       )}
+
+      {/* Task progress FAB + bottom sheet */}
+      <TaskFab snapshot={taskSnapshot} onClick={() => setTaskSheetOpen(true)} />
+      <TaskBottomSheet snapshot={taskSnapshot} open={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} />
 
       {/* Interactive prompt overlay (permissions, questions, plan approval, etc.) */}
       {interactivePrompt && (

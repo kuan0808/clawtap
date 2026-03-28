@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { patchAdapterPrefs, loadAdapterPrefs } from '../lib/adapter-prefs';
 import { stripMarker } from '@/lib/content-utils';
 import { parseAskQuestionInput } from '@/lib/ask-question-utils';
+import { useTaskState } from './useTaskState';
 
 export type ChatMessage = {
   id?: string;
@@ -153,6 +154,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
 
   const [activeReviewPanel, setActiveReviewPanel] = useState<'expanded' | 'minimized'>('expanded');
   const [historyReview, setHistoryReview] = useState<any>(null);
+  const { taskSnapshot, handleTaskState, resetTasks } = useTaskState();
 
   const queuedRef = useRef<string | null>(null);
   const streamingRef = useRef(false);
@@ -177,6 +179,13 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
     }
   }, []);
 
+  const enterStreaming = useCallback(() => {
+    if (!streamingRef.current) setInterrupted(false);
+    setStreaming(true);
+    setPendingResponse(true);
+    streamingRef.current = true;
+  }, []);
+
   // --- WebSocket Message Handler ---
   const handleWsMessage = useCallback((msg: any) => {
     switch (msg.type) {
@@ -196,6 +205,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         } else {
           if (msg.permissionMode) setPermissionMode(msg.permissionMode);
         }
+        resetTasks();
         break;
 
       case WS.CLIENT_ID:
@@ -399,22 +409,22 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         break;
 
       case WS.SESSION_STATE:
-        if (msg.streaming) {
-          if (!streamingRef.current) {
-            setInterrupted(false);
-          }
-          setStreaming(true);
-          setPendingResponse(true);
-          streamingRef.current = true;
-        }
+        if (msg.streaming) enterStreaming();
         break;
 
-      // Full history load on reconnection (replaces, not appends)
       case WS.HISTORY_LOAD:
         if (msg.messages && Array.isArray(msg.messages)) {
           setMessages(convertMessages(msg.messages));
         }
-        setPendingResponse(false);
+        if (msg.streaming) {
+          enterStreaming();
+        } else {
+          setStreaming(false);
+          setPendingResponse(false);
+          setStreamingText('');
+          setThinkingStatus(null);
+          streamingRef.current = false;
+        }
         break;
 
       case WS.STATUS_UPDATE:
@@ -464,8 +474,12 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         streamingRef.current = false;
         console.error('Server error:', msg.error);
         break;
+
+      case WS.TASK_STATE:
+        handleTaskState({ tasks: msg.tasks, completed: msg.completed, total: msg.total });
+        break;
     }
-  }, [drainQueue]);
+  }, [drainQueue, enterStreaming, handleTaskState, resetTasks]);
 
   // --- WebSocket Connection ---
   useEffect(() => {
@@ -645,6 +659,7 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
     queuedMessage, clearQueuedMessage,
     activeReviews, setActiveReviews, activeReviewPanel, setActiveReviewPanel,
     historyReview, setHistoryReview,
+    taskSnapshot,
     sendMessage, respondPermission, respondAsk, respondPrompt, respondPlan, abort,
     updateModel, updatePermissionMode, updateAdapter,
   };

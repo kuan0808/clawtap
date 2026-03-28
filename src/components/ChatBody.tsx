@@ -1,8 +1,8 @@
-import React, { useRef, useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { ChatMessage, ToolStatus } from '../hooks/useChat';
 import { MessageBubble } from './MessageBubble';
 import { ToolCallCard } from './ToolCallCard';
-import { TaskProgress } from './TaskProgress';
 import { SubagentGroup } from './SubagentGroup';
 import { ShimmerInput } from './ShimmerInput';
 
@@ -16,7 +16,6 @@ export interface ChatBodyProps {
   toolStatuses: Map<string, ToolStatus>;
   onSend: (text: string) => void;
   onStop: () => void;
-  disabled: boolean;
   interrupted: boolean;
   sendTargets?: { adapter: string; label: string }[];
   onSendTo?: (messageId: string, adapter?: string) => void;
@@ -48,7 +47,6 @@ export function ChatBody({
   toolStatuses,
   onSend,
   onStop,
-  disabled,
   interrupted,
   sendTargets,
   onSendTo,
@@ -67,12 +65,19 @@ export function ChatBody({
   const scrollRef = scrollContainerRef || internalRef;
   const [userScrolled, setUserScrolled] = useState(false);
 
-  // Auto-scroll to bottom when new messages arrive, unless user scrolled up
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [scrollRef]);
+
+  // Auto-scroll when new content arrives
   useEffect(() => {
-    if (!userScrolled && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (!userScrolled) {
+      scrollToBottom();
     }
-  }, [messages, userScrolled]);
+  }, [messages, streaming, userScrolled, scrollToBottom]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -95,10 +100,9 @@ export function ChatBody({
       ? new Set(content.filter((b: any) => b.type === 'tool_result').map((b: any) => b.tool_use_id))
       : null;
 
-    const taskBlocks = toolBlocks.filter((b: any) => b.name === 'TodoWrite');
     const planBlocks = toolBlocks.filter((b: any) => b.name === 'ExitPlanMode' && b.input?.plan);
     const regularTools = toolBlocks.filter(
-      (b: any) => !['TodoWrite', 'EnterPlanMode', 'ExitPlanMode'].includes(b.name),
+      (b: any) => !['TodoWrite', 'TaskCreate', 'TaskUpdate', 'EnterPlanMode', 'ExitPlanMode'].includes(b.name),
     );
 
     const subagentGroups = new Map<string, any[]>();
@@ -149,10 +153,6 @@ export function ChatBody({
           <ToolCallCard key={tool.id} toolName={tool.name} input={tool.input} status={status?.status || fallbackStatus} result={status?.result || tool._result} />,
         );
       }
-    }
-
-    for (const task of taskBlocks) {
-      elements.push(<TaskProgress key={task.id} input={task.input} />);
     }
 
     for (const plan of planBlocks) {
@@ -243,12 +243,23 @@ export function ChatBody({
         )}
       </div>
 
+      {/* Scroll-to-bottom button */}
+      {userScrolled && (
+        <button
+          onClick={() => { setUserScrolled(false); scrollToBottom(); }}
+          className="absolute bottom-20 right-4 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shadow-lg hover:bg-surface-light transition-colors z-10"
+          aria-label="Scroll to bottom"
+        >
+          <ChevronDown className="w-4 h-4 text-text-secondary" />
+        </button>
+      )}
+
       {renderAboveInput?.()}
 
       {/* Input */}
       <div className="shrink-0 px-4 py-2 safe-bottom">
         {!hideInput ? (
-          <ShimmerInput onSend={onSend} onStop={onStop} disabled={disabled} streaming={streaming} interrupted={interrupted} initialText={initialInputText} placeholder={inputPlaceholder} />
+          <ShimmerInput onSend={onSend} onStop={onStop} disabled={false} streaming={streaming} interrupted={interrupted} initialText={initialInputText} placeholder={inputPlaceholder} />
         ) : (
           <div className="px-4 py-3 text-center text-text-dim/40 text-xs italic">
             Review ended — read only

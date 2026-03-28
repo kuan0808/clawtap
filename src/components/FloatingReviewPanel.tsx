@@ -97,7 +97,6 @@ const ReviewTab = React.memo(function ReviewTab({ review, cwd, onSessionCreated,
         toolStatuses={toolStatuses || new Map()}
         onSend={sendMessage}
         onStop={abort}
-        disabled={false}
         interrupted={false}
         onSendBack={readOnly ? undefined : handleSendBack}
         hideInput={readOnly}

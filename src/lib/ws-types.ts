@@ -37,6 +37,8 @@ export const WS = {
   // Cross-AI Review
   REVIEW_STARTED: 'review-started',
   REVIEW_ENDED: 'review-ended',
+  // Task Progress
+  TASK_STATE: 'task-state',
 } as const;
 
 /**
