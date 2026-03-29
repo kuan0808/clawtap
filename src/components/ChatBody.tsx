@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ArrowDownToLine } from 'lucide-react';
 import type { ChatMessage, ToolStatus } from '../hooks/useChat';
 import { MessageBubble } from './MessageBubble';
 import { ToolCallCard } from './ToolCallCard';
@@ -65,10 +65,19 @@ export function ChatBody({
   const scrollRef = scrollContainerRef || internalRef;
   const [userScrolled, setUserScrolled] = useState(false);
 
-  const scrollToBottom = useCallback(() => {
+  const isAutoScrolling = useRef(false);
+
+  const scrollToBottom = useCallback((smooth = false) => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (!el) return;
+      if (smooth) {
+        isAutoScrolling.current = true;
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        setTimeout(() => { isAutoScrolling.current = false; }, 800);
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     });
   }, [scrollRef]);
 
@@ -80,6 +89,7 @@ export function ChatBody({
   }, [messages, streaming, userScrolled, scrollToBottom]);
 
   function handleScroll() {
+    if (isAutoScrolling.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const scrolled = el.scrollHeight - el.scrollTop - el.clientHeight >= 100;
@@ -168,7 +178,7 @@ export function ChatBody({
   return (
     <div className={className ? `flex flex-col min-h-0 ${className}` : 'flex flex-col min-h-0 flex-1'}>
       {/* Scroll container */}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 pt-14 pb-4">
         {messages.length === 0 && !streaming && (
           <div className="text-text-dim text-sm text-center py-20 font-mono">Send a message to start</div>
         )}
@@ -246,11 +256,11 @@ export function ChatBody({
       {/* Scroll-to-bottom button */}
       {userScrolled && (
         <button
-          onClick={() => { setUserScrolled(false); scrollToBottom(); }}
+          onClick={() => { setUserScrolled(false); scrollToBottom(true); }}
           className="absolute bottom-20 right-4 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shadow-lg hover:bg-surface-light transition-colors z-10"
           aria-label="Scroll to bottom"
         >
-          <ChevronDown className="w-4 h-4 text-text-secondary" />
+          <ArrowDownToLine className="w-4 h-4 text-text-secondary" />
         </button>
       )}
 

@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Fragment, type RefObject } from 'react';
 import { useChat } from '../hooks/useChat';
-import { useVisualViewport } from '../hooks/useVisualViewport';
 import { PLAN_OPTION } from '../lib/ws-types';
 import { InteractivePromptOverlay } from './InteractivePromptOverlay';
 import { StatusBar } from './StatusBar';
@@ -98,25 +97,41 @@ function ChatHeader({ sessionId, cwd }: { sessionId?: string; cwd?: string }) {
 }
 
 
-/** Tracks scroll direction inside a child scroll container to auto-hide/show the header. */
+/** Auto-hide header during scroll, show when scroll stops or at bottom. */
 function useAutoHideHeader(scrollRef: RefObject<HTMLDivElement | null>) {
   const [hidden, setHidden] = useState(false);
   const lastScrollTop = useRef(0);
+  const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+
     function onScroll() {
       const st = el!.scrollTop;
       const delta = st - lastScrollTop.current;
-      // delta > 0 means scrollTop increased (user scrolled toward bottom/latest)
-      // delta < 0 means scrollTop decreased (user scrolled toward top/history)
-      if (delta > 8) setHidden(false);   // toward latest → show header
-      else if (delta < -8) setHidden(true); // toward history → hide header
       lastScrollTop.current = st;
+
+      // Don't hide when at the bottom (viewing latest messages)
+      const atBottom = el!.scrollHeight - st - el!.clientHeight < 50;
+      if (atBottom) {
+        if (stopTimer.current) clearTimeout(stopTimer.current);
+        setHidden(false);
+        return;
+      }
+
+      if (Math.abs(delta) > 8) setHidden(true);
+
+      // Show header after scroll stops
+      if (stopTimer.current) clearTimeout(stopTimer.current);
+      stopTimer.current = setTimeout(() => setHidden(false), 1000);
     }
+
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (stopTimer.current) clearTimeout(stopTimer.current);
+    };
   }, [scrollRef]);
 
   return hidden;
@@ -139,7 +154,6 @@ export function ChatView({
   const reviewPanelRef = useRef<ReviewPanelHandle>(null);
   const reviewRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerHidden = useAutoHideHeader(chatScrollRef);
-  const viewportHeight = useVisualViewport();
 
   const {
     messages, toolStatuses, streaming, pendingResponse, wsStatus, sessionId, liveStatus,
@@ -484,11 +498,10 @@ export function ChatView({
 
   return (
     <div
-      className="flex flex-col bg-bg relative overflow-hidden safe-top"
-      style={{ height: viewportHeight ? `${viewportHeight}px` : '100dvh' }}
+      className="flex flex-col h-dvh bg-bg relative overflow-hidden safe-top"
     >
-      {/* Header — auto-hides when scrolling up to view history */}
-      <div className={`flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 transition-all duration-200 ${headerHidden ? 'max-h-0 py-0 overflow-hidden opacity-0 border-b-0' : 'max-h-16 opacity-100'}`}>
+      {/* Header — overlays content, slides up when scrolling */}
+      <div className={`absolute top-0 left-0 right-0 flex items-center gap-2 px-4 py-3 border-b border-border bg-bg z-10 safe-top transition-transform duration-200 ${headerHidden ? '-translate-y-full' : 'translate-y-0'}`}>
         <Button variant="ghost" size="icon" onClick={onBack}>
           <ChevronLeft className="w-5 h-5" />
         </Button>
