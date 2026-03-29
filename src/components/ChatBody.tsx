@@ -253,16 +253,18 @@ export function ChatBody({
         )}
       </div>
 
-      {/* Scroll-to-bottom button */}
-      {userScrolled && (
-        <button
-          onClick={() => { setUserScrolled(false); scrollToBottom(true); }}
-          className="absolute bottom-20 right-4 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shadow-lg hover:bg-surface-light transition-colors z-10"
-          aria-label="Scroll to bottom"
-        >
-          <ArrowDownToLine className="w-4 h-4 text-text-secondary" />
-        </button>
-      )}
+      {/* Scroll-to-bottom button — sits just above the footer area */}
+      <div className="relative shrink-0">
+        {userScrolled && (
+          <button
+            onClick={() => { setUserScrolled(false); scrollToBottom(true); }}
+            className="absolute -top-10 right-4 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center shadow-lg hover:bg-surface-light transition-colors z-10"
+            aria-label="Scroll to bottom"
+          >
+            <ArrowDownToLine className="w-4 h-4 text-text-secondary" />
+          </button>
+        )}
+      </div>
 
       {renderAboveInput?.()}
 

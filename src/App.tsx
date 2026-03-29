@@ -36,7 +36,7 @@ function persistView(view: View) {
   sessionStorage.setItem('currentView', JSON.stringify(view));
 }
 
-function navigateTo(view: View) {
+function navigateTo(view: View, replace = false) {
   persistView(view);
   let url = '/';
   if (view.name === 'chat' && view.sessionId) {
@@ -45,7 +45,11 @@ function navigateTo(view: View) {
   } else if (view.name === 'settings') {
     url = '/?view=settings';
   }
-  window.history.pushState({ view }, '', url);
+  if (replace) {
+    window.history.replaceState({ view }, '', url);
+  } else {
+    window.history.pushState({ view }, '', url);
+  }
 }
 
 export function App() {
@@ -225,7 +229,7 @@ export function App() {
     // Navigate to chat view with cwd — ChatView will pick up globals and send the prompt
     const chatCwd = view.name === 'newchat' ? view.cwd : undefined;
     const v: View = { name: 'chat', cwd: chatCwd, initialPrompt: options.prompt, adapter: options.adapter };
-    navigateTo(v);
+    navigateTo(v, true); // replace newchat → chat so back goes to session list
     setView(v);
   }, [view]);
 

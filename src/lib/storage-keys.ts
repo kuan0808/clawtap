@@ -5,6 +5,7 @@ export const STORAGE = {
   PROJECT_DIR: 'clawtap:projectDir',
   DRAFT: 'clawtap:draft',
   INSTALL_DISMISSED: 'clawtap:install-dismissed',
+  SESSIONS_TAB: 'clawtap:sessionsTab',
   adapterPrefs: (id: string) => `clawtap:adapterPrefs:${id}` as const,
 } as const;
 

@@ -8,7 +8,14 @@ export function useSessions() {
     () => localStorage.getItem(STORAGE.PROJECT_DIR)
   );
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'projects' | 'active'>('projects');
+  const [activeTab, _setActiveTab] = useState<'projects' | 'active'>(() => {
+    const stored = sessionStorage.getItem(STORAGE.SESSIONS_TAB);
+    return stored === 'active' ? 'active' : 'projects';
+  });
+  const setActiveTab = useCallback((tab: 'projects' | 'active') => {
+    _setActiveTab(tab);
+    sessionStorage.setItem(STORAGE.SESSIONS_TAB, tab);
+  }, []);
   const [activeSessions, setActiveSessions] = useState<any[]>([]);
 
   const fetchAll = useCallback(async () => {
