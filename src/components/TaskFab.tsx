@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { TaskSnapshot } from '../hooks/useTaskState';
 
 type FabState = 'hidden' | 'visible' | 'fading';
@@ -11,6 +11,7 @@ interface TaskFabProps {
 export function TaskFab({ snapshot, onClick }: TaskFabProps) {
   const { completed, total } = snapshot;
   const [fabState, setFabState] = useState<FabState>('hidden');
+  const hasBeenVisible = useRef(false);
 
   const allDone = total > 0 && completed === total;
   const pct = total > 0 ? completed / total : 0;
@@ -18,8 +19,12 @@ export function TaskFab({ snapshot, onClick }: TaskFabProps) {
   useEffect(() => {
     if (total === 0) {
       setFabState('hidden');
+      hasBeenVisible.current = false;
       return;
     }
+    // Skip showing FAB if all tasks were already done on first load (reconnect)
+    if (allDone && !hasBeenVisible.current) return;
+    hasBeenVisible.current = true;
     setFabState('visible');
     if (allDone) {
       const timer = setTimeout(() => setFabState('fading'), 3000);
