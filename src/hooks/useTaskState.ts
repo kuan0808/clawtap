@@ -3,7 +3,7 @@ import type { AggregatedTask, TaskSnapshot } from '../../server/stores/task-aggr
 
 export type { AggregatedTask, TaskSnapshot };
 
-const EMPTY_SNAPSHOT: TaskSnapshot = { tasks: [], completed: 0, total: 0 };
+const EMPTY_SNAPSHOT: TaskSnapshot = { tasks: [], currentRound: [], completed: 0, total: 0, round: 0, hasHistory: false };
 
 export function useTaskState() {
   const [taskSnapshot, setTaskSnapshot] = useState<TaskSnapshot>(EMPTY_SNAPSHOT);

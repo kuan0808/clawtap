@@ -1,9 +1,9 @@
 /**
  * Pure aggregator: processes tool_use blocks (TaskCreate, TaskUpdate, TodoWrite)
- * and produces a unified AggregatedTask[] snapshot.
+ * and produces a unified AggregatedTask[] snapshot with round-based grouping.
  *
- * Stateful — call processToolUse() for each relevant tool call in order.
- * Call getSnapshot() to read current state (cached, invalidated on changes).
+ * A new "round" starts when all tasks were completed and a new TaskCreate arrives.
+ * The snapshot exposes both the current round (for FAB) and all tasks (for sheet history).
  */
 
 export interface AggregatedTask {
@@ -15,12 +15,22 @@ export interface AggregatedTask {
   blockedBy?: string[];
   blocks?: string[];
   source: 'task-api' | 'todo-write';
+  round: number;
 }
 
 export interface TaskSnapshot {
+  /** All tasks across all rounds */
   tasks: AggregatedTask[];
+  /** Current round tasks only (for FAB display) */
+  currentRound: AggregatedTask[];
+  /** Completed count in current round */
   completed: number;
+  /** Total count in current round */
   total: number;
+  /** Current round number (0-based) */
+  round: number;
+  /** Whether there are previous rounds (for sheet "history" section) */
+  hasHistory: boolean;
 }
 
 /** Tool names that produce task state changes. */
@@ -32,11 +42,19 @@ export class TaskAggregator {
   private taskApiTasks = new Map<string, AggregatedTask>();
   private todoWriteTasks = new Map<string, AggregatedTask>();
   private cachedSnapshot: TaskSnapshot | null = null;
+  private currentRound = 0;
+  private allCompletedBeforeCreate = true; // tracks if all tasks were done before last TaskCreate
 
   /** Process a single tool_use block. Returns true if state changed. */
   processToolUse(toolName: string, input: Record<string, unknown>, resultText?: string): boolean {
     switch (toolName) {
       case 'TaskCreate': {
+        // Start a new round if all previous tasks were completed
+        if (this.taskApiTasks.size > 0 && this.allCompletedBeforeCreate) {
+          this.currentRound++;
+        }
+        this.allCompletedBeforeCreate = false;
+
         const match = resultText?.match(/Task #(\d+)/);
         const id = match?.[1] || String(this.taskApiTasks.size + 1);
         this.taskApiTasks.set(id, {
@@ -46,6 +64,7 @@ export class TaskAggregator {
           activeForm: (input.activeForm as string) || undefined,
           status: 'pending',
           source: 'task-api',
+          round: this.currentRound,
         });
         this.cachedSnapshot = null;
         return true;
@@ -59,6 +78,7 @@ export class TaskAggregator {
         if (input.status === 'deleted') {
           this.taskApiTasks.delete(taskId);
           this.cachedSnapshot = null;
+          this.updateCompletionState();
           return true;
         }
         const updated: AggregatedTask = { ...existing };
@@ -74,10 +94,16 @@ export class TaskAggregator {
         }
         this.taskApiTasks.set(taskId, updated);
         this.cachedSnapshot = null;
+        this.updateCompletionState();
         return true;
       }
 
       case 'TodoWrite': {
+        // TodoWrite always starts a new round (replaces entire todo list)
+        if (this.todoWriteTasks.size > 0 || this.taskApiTasks.size > 0) {
+          const allDone = this.allTasksCompleted();
+          if (allDone) this.currentRound++;
+        }
         this.todoWriteTasks.clear();
         const tasks = (input.tasks || input.todos || []) as Array<{
           id: string;
@@ -90,9 +116,11 @@ export class TaskAggregator {
             subject: t.content || '',
             status: (t.status as AggregatedTask['status']) || 'pending',
             source: 'todo-write',
+            round: this.currentRound,
           });
         }
         this.cachedSnapshot = null;
+        this.updateCompletionState();
         return true;
       }
 
@@ -107,8 +135,16 @@ export class TaskAggregator {
       ...this.taskApiTasks.values(),
       ...this.todoWriteTasks.values(),
     ];
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    this.cachedSnapshot = { tasks, completed, total: tasks.length };
+    const currentRound = tasks.filter(t => t.round === this.currentRound);
+    const completed = currentRound.filter(t => t.status === 'completed').length;
+    this.cachedSnapshot = {
+      tasks,
+      currentRound,
+      completed,
+      total: currentRound.length,
+      round: this.currentRound,
+      hasHistory: this.currentRound > 0,
+    };
     return this.cachedSnapshot;
   }
 
@@ -120,5 +156,22 @@ export class TaskAggregator {
     this.taskApiTasks.clear();
     this.todoWriteTasks.clear();
     this.cachedSnapshot = null;
+    this.currentRound = 0;
+    this.allCompletedBeforeCreate = true;
+  }
+
+  private allTasksCompleted(): boolean {
+    for (const t of this.taskApiTasks.values()) {
+      if (t.status !== 'completed') return false;
+    }
+    for (const t of this.todoWriteTasks.values()) {
+      if (t.status !== 'completed') return false;
+    }
+    return true;
+  }
+
+  /** Update the flag that tracks whether all tasks are done (for round detection). */
+  private updateCompletionState(): void {
+    this.allCompletedBeforeCreate = this.allTasksCompleted();
   }
 }

@@ -476,7 +476,14 @@ export function useChat(initialSessionId?: string, cwd?: string, initialAdapter?
         break;
 
       case WS.TASK_STATE:
-        handleTaskState({ tasks: msg.tasks, completed: msg.completed, total: msg.total });
+        handleTaskState({
+          tasks: msg.tasks,
+          currentRound: msg.currentRound,
+          completed: msg.completed,
+          total: msg.total,
+          round: msg.round,
+          hasHistory: msg.hasHistory,
+        });
         break;
     }
   }, [drainQueue, enterStreaming, handleTaskState, resetTasks]);

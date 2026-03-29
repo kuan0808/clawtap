@@ -85,8 +85,28 @@ function TaskRow({ task, taskMap }: { task: AggregatedTask; taskMap: Map<string,
   );
 }
 
+function HistorySection({ tasks, taskMap }: { tasks: AggregatedTask[]; taskMap: Map<string, AggregatedTask> }) {
+  const [expanded, setExpanded] = useState(false);
+  const completed = tasks.filter(t => t.status === 'completed').length;
+
+  return (
+    <div className="border-t border-border/30 mt-2 pt-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full text-xs text-text-dim py-1"
+      >
+        <span>Previous tasks ({completed}/{tasks.length})</span>
+        {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+      </button>
+      {expanded && tasks.map(task => (
+        <TaskRow key={`${task.source}:${task.id}`} task={task} taskMap={taskMap} />
+      ))}
+    </div>
+  );
+}
+
 export function TaskBottomSheet({ snapshot, open, onClose }: TaskBottomSheetProps) {
-  const { tasks, completed, total } = snapshot;
+  const { tasks, currentRound, completed, total, hasHistory } = snapshot;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   const taskMap = useMemo(() => {
@@ -94,6 +114,12 @@ export function TaskBottomSheet({ snapshot, open, onClose }: TaskBottomSheetProp
     for (const t of tasks) map.set(`${t.source}:${t.id}`, t);
     return map;
   }, [tasks]);
+
+  const historyTasks = useMemo(() => {
+    if (!hasHistory) return [];
+    const currentIds = new Set(currentRound.map(t => `${t.source}:${t.id}`));
+    return tasks.filter(t => !currentIds.has(`${t.source}:${t.id}`));
+  }, [tasks, currentRound, hasHistory]);
 
   return (
     <BottomSheet visible={open} onClose={onClose} className="max-h-[70vh] flex flex-col">
@@ -107,13 +133,17 @@ export function TaskBottomSheet({ snapshot, open, onClose }: TaskBottomSheetProp
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {tasks.map(task => (
+        {currentRound.map(task => (
           <TaskRow
             key={`${task.source}:${task.id}`}
             task={task}
             taskMap={taskMap}
           />
         ))}
+
+        {historyTasks.length > 0 && (
+          <HistorySection tasks={historyTasks} taskMap={taskMap} />
+        )}
       </div>
     </BottomSheet>
   );
