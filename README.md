@@ -41,6 +41,8 @@ clawtap
 
 Open the URL on your phone. That's it.
 
+> **Mobile access?** ClawTap needs HTTPS for PWA install and push notifications. The easiest way is [Tailscale](https://tailscale.com): `tailscale serve --bg 3456` gives you a trusted HTTPS URL instantly. See [PWA & Push Notifications](#-pwa--push-notifications) for details.
+
 ClawTap auto-detects which AI CLIs you have installed (`claude`, `codex`, `gemini`) and enables them automatically.
 
 <details>
@@ -124,9 +126,16 @@ Every tool call renders as an expandable card:
 
 Send follow-up messages while the AI is still responding. They appear as "Queued" with Edit/Cancel and auto-send when the AI finishes. Paste images from clipboard with thumbnail preview.
 
+### Task Progress
+
+When your AI creates tasks (via `TaskCreate`/`TaskUpdate`), a floating progress ring appears in the bottom-right corner showing completion (e.g., 2/5). Tap it to expand a bottom sheet with full task details. Tasks are grouped by rounds — a new round starts when all previous tasks complete. The ring auto-fades 3 seconds after all tasks finish.
+
 ### Voice Input
 
-Tap the mic icon to dictate coding instructions. Uses the Web Speech API with real-time interim transcription. Works in any language.
+Tap the mic icon to dictate coding instructions. Supports two backends:
+
+- **Web Speech API** (default) — real-time interim transcription, currently configured for Traditional Chinese (`zh-TW`)
+- **OpenAI Whisper** — higher accuracy, requires `OPENAI_API_KEY` (see [Configuration](#-configuration))
 
 ### Smart Input
 
@@ -151,6 +160,8 @@ clawtap hooks install [--adapter claude]   # Install hooks (all or one adapter)
 clawtap hooks uninstall [--adapter gemini] # Remove hooks
 clawtap cert                               # Generate HTTPS certificate
 clawtap stop                               # Graceful shutdown
+clawtap --version                          # Show version
+clawtap --help                             # Show help
 ```
 
 The `--adapter` flag works with every command. Session lists show colored `[Claude]`/`[Codex]`/`[Gemini]` labels with first-prompt previews.
@@ -175,7 +186,7 @@ clawtap cert
 
 **2. Install PWA:** Open the URL in Safari → Share → **Add to Home Screen**.
 
-**3. Enable notifications:** Open ClawTap from home screen → tap the **bell icon** → Allow.
+**3. Enable notifications:** On first login in standalone mode, ClawTap automatically prompts for notification permission. You can also toggle notifications manually in **Settings**.
 
 ### Smart Notifications
 
@@ -195,6 +206,8 @@ The app icon badge shows how many sessions have unread notifications. Entering a
 |----------|---------|-------------|
 | `CLAWTAP_PASSWORD` | *(required)* | Login password |
 | `PORT` | `3456` | Server port |
+| `OPENAI_API_KEY` | *(optional)* | Enables Whisper voice transcription (higher accuracy than Web Speech API) |
+| `VAPID_EMAIL` | `noreply@clawtap.local` | Contact email for Web Push VAPID identification |
 
 HTTPS is enabled automatically when `~/.clawtap/cert.pem` and `~/.clawtap/key.pem` exist. Otherwise the server runs on HTTP. Tailscale Serve is the easiest path to HTTPS.
 

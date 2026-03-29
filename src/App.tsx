@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { STORAGE } from './lib/storage-keys';
 import { isAuthenticated, clearToken } from './lib/api';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import { LoginView } from './components/LoginView';
 import { SessionsView } from './components/SessionsView';
 import { ChatView } from './components/ChatView';
@@ -59,6 +60,7 @@ export function App() {
   const [deviceOnline, setDeviceOnline] = useState(navigator.onLine);
   const consecutiveFails = useRef(0);
   const initialized = useRef(false);
+  const { supported: pushSupported, subscribed: pushSubscribed, subscribe: pushSubscribe } = usePushNotifications();
 
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installDismissed, setInstallDismissed] = useState(
@@ -119,6 +121,43 @@ export function App() {
     navigator.serviceWorker?.addEventListener('controllerchange', handleControllerChange);
     return () => navigator.serviceWorker?.removeEventListener('controllerchange', handleControllerChange);
   }, []);
+
+  // PWA iOS: Sync --app-height CSS variable to the true viewport height.
+  // WebKit bug: after a keyboard open/close cycle, viewport-fit=cover's layout
+  // extension is lost, causing 100dvh to shrink permanently. We track the max
+  // observed innerHeight and lock it as the app height.
+  useEffect(() => {
+    let maxHeight = window.innerHeight;
+    const sync = () => {
+      const h = window.innerHeight;
+      if (h > maxHeight) maxHeight = h;
+      document.documentElement.style.setProperty('--app-height', `${maxHeight}px`);
+    };
+    sync();
+    window.visualViewport?.addEventListener('resize', sync);
+    window.addEventListener('resize', sync);
+    return () => {
+      window.visualViewport?.removeEventListener('resize', sync);
+      window.removeEventListener('resize', sync);
+    };
+  }, []);
+
+  // PWA: Auto-prompt notification permission on first login in standalone mode
+  useEffect(() => {
+    if (!authed || !pushSupported || pushSubscribed) return;
+    if (localStorage.getItem(STORAGE.PUSH_PROMPTED)) return;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+      || (navigator as any).standalone === true;
+    if (!isStandalone) return;
+    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') return;
+
+    // Small delay so the UI has time to settle after login
+    const timer = setTimeout(() => {
+      localStorage.setItem(STORAGE.PUSH_PROMPTED, '1');
+      pushSubscribe().catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [authed, pushSupported, pushSubscribed, pushSubscribe]);
 
   // PWA: Clear app badge on focus
   useEffect(() => {

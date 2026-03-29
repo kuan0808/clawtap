@@ -6,6 +6,7 @@ export const STORAGE = {
   DRAFT: 'clawtap:draft',
   INSTALL_DISMISSED: 'clawtap:install-dismissed',
   SESSIONS_TAB: 'clawtap:sessionsTab',
+  PUSH_PROMPTED: 'clawtap:push-prompted',
   adapterPrefs: (id: string) => `clawtap:adapterPrefs:${id}` as const,
 } as const;
 

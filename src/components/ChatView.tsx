@@ -490,7 +490,7 @@ export function ChatView({
 
   if (!selectedAdapter) {
     return (
-      <div className="flex flex-col h-dvh bg-bg items-center justify-center">
+      <div className="flex flex-col bg-bg items-center justify-center" style={{ height: 'var(--app-height, 100dvh)' }}>
         <LoadingAnimation size="md" label="Connecting..." />
       </div>
     );
@@ -498,7 +498,8 @@ export function ChatView({
 
   return (
     <div
-      className="flex flex-col h-dvh bg-bg relative overflow-hidden safe-top"
+      className="flex flex-col bg-bg relative overflow-hidden safe-top"
+      style={{ height: 'var(--app-height, 100dvh)' }}
     >
       {/* Header — overlays content, slides up when scrolling */}
       <div className={`absolute top-0 left-0 right-0 flex items-center gap-2 px-4 py-3 border-b border-border bg-bg z-10 safe-top transition-transform duration-200 ${headerHidden ? '-translate-y-full' : 'translate-y-0'}`}>

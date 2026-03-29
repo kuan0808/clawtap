@@ -7,7 +7,7 @@ import { AdapterTabs } from './AdapterTabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { LoadingAnimation } from './ui/LoadingAnimation';
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Bell, BellOff, ArrowRightLeft, ClipboardList, MoreVertical } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, ArrowRightLeft, ClipboardList, MoreVertical } from 'lucide-react';
 import { timeAgo, dirName, PERMISSION_MODES } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { getBrand, ADAPTER_BRANDS } from '@/lib/adapter-brands';
@@ -41,7 +41,7 @@ export function SessionsView({
     activeSessionIds,
     refreshActive,
   } = useSessions();
-  const { supported: pushSupported, subscribed, subscribe, unsubscribe } = usePushNotifications();
+  const { subscribed } = usePushNotifications();
   const [showBrowser, setShowBrowser] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -256,15 +256,6 @@ export function SessionsView({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHeaderMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg py-1 min-w-[180px] shadow-lg">
-                  {pushSupported && (
-                    <button
-                      onClick={() => { (subscribed ? unsubscribe() : subscribe()).catch(() => {}); setShowHeaderMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono text-text-dim hover:text-text hover:bg-white/5 transition-colors"
-                    >
-                      {subscribed ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
-                      {subscribed ? 'Disable notifications' : 'Enable notifications'}
-                    </button>
-                  )}
                   <button
                     onClick={() => { onOpenSettings(); setShowHeaderMenu(false); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono text-text-dim hover:text-text hover:bg-white/5 transition-colors"
